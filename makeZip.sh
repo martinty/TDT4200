@@ -7,7 +7,6 @@ if [[ $# < 1 ]]; then
 fi
 
 FOLDER=$1
-
 find $FOLDER/src -type f > $FOLDER/$ZIPLIST
 find $FOLDER/inc -type f >> $FOLDER/$ZIPLIST
 find $FOLDER -name "run.sh" >> $FOLDER/$ZIPLIST
@@ -18,4 +17,6 @@ do
     find $FOLDER/program/ -name "$ARG" >> $FOLDER/$ZIPLIST
 done
 
-zip -v a1.zip -@ < $FOLDER/$ZIPLIST
+ARCHIVE="$FOLDER.zip"
+rm -f $ARCHIVE
+zip -v $ARCHIVE -@ < $FOLDER/$ZIPLIST

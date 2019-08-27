@@ -22,6 +22,10 @@ void savebmp(char *name,uchar *buffer,int x,int y) {
 // read bmp file and store image in contiguous array
 void readbmp(char* filename, uchar* array) {
 	FILE* img = fopen(filename, "rb");   //read the file
+	if(!img) {
+		printf("Error: Can't open image \n");
+		exit(1);
+	}
 	uchar header[54];
 	fread(header, sizeof(uchar), 54, img); // read the 54-byte header
 
