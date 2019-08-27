@@ -43,3 +43,29 @@ void readbmp(char* filename, uchar* array) {
 	}
 	fclose(img); //close the file
 }
+
+void flipLeftRight(uchar *array, int width, int height){
+	uchar lefSideTemp;
+	for(int y = 0; y < height; y++){
+		for(int x = 0; x < width*3/2; x += 3){
+			for(int i = 0; i < 3; i++){
+				lefSideTemp = array[3 * y * width + x + i]; 
+				array[3 * y * width + x + i] = array[3 * y * width + (3 * width - 3 - x) + i];
+				array[3 * y * width + (3 * width - 3 - x) + i] = lefSideTemp;
+			}
+		}
+	}
+}
+
+void flipUpDown(uchar *array, int width, int height){
+	uchar upSideTemp;
+	for(int y = 0; y < height/2; y++){
+		for(int x = 0; x < width*3; x += 3){
+			for(int i = 0; i < 3; i++){
+				upSideTemp = array[3 * y * width + x + i]; 
+				array[3 * y * width + x + i] = array[3 * (height - 1 - y) * width + x + i];
+				array[3 * (height - 1 - y) * width + x + i] = upSideTemp;
+			}
+		}
+	}
+}

@@ -10,6 +10,8 @@ int main() {
 	readbmp("before.bmp", image);
 
 	// Alter the image here
+	//flipLeftRight(image, XSIZE, YSIZE);
+	flipUpDown(image, XSIZE, YSIZE);
 
 	savebmp("after.bmp", image, XSIZE, YSIZE);
 	free(image);

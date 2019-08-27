@@ -6,7 +6,7 @@ typedef unsigned char uchar;
 void savebmp(char *name, uchar *buffer, int x, int y);
 void readbmp(char *filename, uchar *array);
 
-void flipLeftRight(uchar *array, int x, int y);
-void flipUpDown(uchar *array, int x, int y);
+void flipLeftRight(uchar *array, int width, int height);
+void flipUpDown(uchar *array, int width, int height);
 
 #endif
