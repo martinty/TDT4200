@@ -9,9 +9,13 @@ int main() {
 	uchar *image = calloc(XSIZE * YSIZE * 3, 1); // Three uchars per pixel (RGB)
 	readbmp("before.bmp", image);
 
+
 	// Alter the image here
-	//flipLeftRight(image, XSIZE, YSIZE);
+	flipLeftRight(image, XSIZE, YSIZE);
 	flipUpDown(image, XSIZE, YSIZE);
+	invertColor(image, XSIZE, YSIZE);
+	saveDoubleSizeBmp("afterDouble.bmp", image, XSIZE, YSIZE);
+
 
 	savebmp("after.bmp", image, XSIZE, YSIZE);
 	free(image);

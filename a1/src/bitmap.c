@@ -16,6 +16,7 @@ void savebmp(char *name,uchar *buffer,int x,int y) {
 	fwrite(header,1,54,f);
 	fwrite(buffer,1,x*y*3,f);
 	fclose(f);
+	printf("Image saved as %s \n", name);
 }
 
 // read bmp file and store image in contiguous array
@@ -68,4 +69,33 @@ void flipUpDown(uchar *array, int width, int height){
 			}
 		}
 	}
+}
+
+void invertColor(uchar *array, int width, int height){
+	for(int y = 0; y < height; y++){
+		for(int x = 0; x < width*3; x += 3){
+			for(int i = 0; i < 3; i++){
+				array[3 * y * width + x + i] = 255 - array[3 * y * width + x + i]; 
+			}
+		}
+	}
+}
+
+void saveDoubleSizeBmp(char *name, uchar *array, int width, int height){
+	int newWidth = width * 2;
+	int newHeight = height * 2;
+	uchar *newImage = calloc(newWidth * newHeight * 3, 1);
+	for(int y = 0; y < height; y++){
+		for(int x = 0; x < width*3; x += 3){
+			for(int i = 0; i < 3; i++){
+				uchar color = array[3 * y * width + x + i];
+				newImage[3 * (y*2) * newWidth + (x*2) + i] = color;
+				newImage[3 * (y*2) * newWidth + (x*2+3) + i] = color;
+				newImage[3 * (y*2+1) * newWidth + (x*2) + i] = color;
+				newImage[3 * (y*2+1) * newWidth + (x*2+3) + i] = color;
+			}
+		}
+	}
+	savebmp(name, newImage, newWidth, newHeight);
+	free(newImage);
 }

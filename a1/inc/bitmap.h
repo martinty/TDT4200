@@ -8,5 +8,7 @@ void readbmp(char *filename, uchar *array);
 
 void flipLeftRight(uchar *array, int width, int height);
 void flipUpDown(uchar *array, int width, int height);
+void invertColor(uchar *array, int width, int height);
+void saveDoubleSizeBmp(char *name, uchar *array, int width, int height);
 
 #endif
