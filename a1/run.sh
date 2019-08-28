@@ -1,16 +1,31 @@
-#!/bin/bash
-clear
+#!/bin/bash -e
 
 SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd)"
 cd $SCRIPTPATH
 
-echo "------------- Running cmake -------------"
+if [[ $1 == "new" ]]; then
+    rm -rf build
+elif [[ $1 == "clean" ]]; then
+    cd build
+    make clean
+    exit 0
+fi
+
 mkdir -p build
 mkdir -p program
 cd build
-cmake ..
-make -j4
 
-echo "------------- Running program -----------"
-cd ../program
-./bitmap
+if [[ $1 != "run" ]]; then
+    echo "------------- Running cmake -------------"
+    cmake ..
+fi
+
+if [[ $OSTYPE =~ "linux" ]]; then
+    echo "------------- Running make --------------"
+    make -j4
+    echo "------------- Running program -----------"
+    cd ../program
+    ./bitmap
+else
+    echo "$OSTYPE is not supported for make and run!"
+fi
