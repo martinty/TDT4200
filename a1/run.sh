@@ -4,7 +4,7 @@ SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd)"
 cd $SCRIPTPATH
 
 if [[ $1 == "new" ]]; then
-    rm -rf build
+    git clean -dfx
 elif [[ $1 == "clean" ]]; then
     cd build
     make clean
