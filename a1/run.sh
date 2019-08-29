@@ -4,7 +4,8 @@ SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd)"
 cd $SCRIPTPATH
 
 if [[ $1 == "new" ]]; then
-    git clean -dfx
+    git clean -dfx program/
+    git clean -dfx build/
 elif [[ $1 == "clean" ]]; then
     cd build
     make clean
@@ -27,7 +28,7 @@ if [[ $OSTYPE =~ "linux" ]]; then
     if [[ $1 == "gdb" ]]; then
         echo "------------- Running program with gdb --"
         gdb ./bitmap
-    else
+    elif [[ $1 == "run" ]]; then
         echo "------------- Running program -----------"
         ./bitmap
     fi
