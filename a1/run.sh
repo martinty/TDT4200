@@ -15,7 +15,7 @@ mkdir -p build
 mkdir -p program
 cd build
 
-if [[ $1 != "run" ]]; then
+if [[ $1 != "run" ]] && [[ $1 != "gdb" ]]; then
     echo "------------- Running cmake -------------"
     cmake ..
 fi
@@ -23,9 +23,14 @@ fi
 if [[ $OSTYPE =~ "linux" ]]; then
     echo "------------- Running make --------------"
     make -j4
-    echo "------------- Running program -----------"
     cd ../program
-    ./bitmap
+    if [[ $1 == "gdb" ]]; then
+        echo "------------- Running program with gdb --"
+        gdb ./bitmap
+    else
+        echo "------------- Running program -----------"
+        ./bitmap
+    fi
 else
     echo "$OSTYPE is not supported for make and run!"
 fi
