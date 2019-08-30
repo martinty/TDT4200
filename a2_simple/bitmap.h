@@ -3,7 +3,16 @@
 
 
 typedef unsigned char uchar;
-void savebmp(char *name, uchar *buffer, int x, int y);
-void readbmp(char *filename, uchar *array);
+typedef struct {
+    uchar r;
+    uchar g;
+    uchar b;
+} Pixel;
+
+void readbmp(char *filename, Pixel **array);
+void savebmp(char *name, Pixel **buffer, int x, int y);
+
+void invertColor(Pixel **array, int x, int y);
+
 
 #endif

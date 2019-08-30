@@ -3,7 +3,7 @@
 #include "bitmap.h"
 
 // save 24-bits bmp file, buffer must be in bmp format: upside-down
-void savebmp(char *name,uchar *buffer,int x,int y) {
+void savebmp(char *name, Pixel **buffer, int x, int y) {
 	FILE *f=fopen(name,"wb");
 	if(!f) {
 		printf("Error writing image to disk.\n");
@@ -14,13 +14,19 @@ void savebmp(char *name,uchar *buffer,int x,int y) {
                     0,0,0,54,0,0,0,40,0,0,0,x&255,x>>8,0,0,y&255,y>>8,0,0,1,0,24,0,0,0,0,0,0,
                     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 	fwrite(header,1,54,f);
-	fwrite(buffer,1,x*y*3,f);
+	for(int row = 0; row < y; row++){
+		fwrite(buffer[row],sizeof(Pixel),x,f);
+	}
 	fclose(f);
 }
 
 // read bmp file and store image in contiguous array
-void readbmp(char* filename, uchar* array) {
+void readbmp(char* filename, Pixel** array) {
 	FILE* img = fopen(filename, "rb");   //read the file
+	if(!img){
+		printf("Error reading image from disk.\n");
+		return;
+	}
 	uchar header[54];
 	fread(header, sizeof(uchar), 54, img); // read the 54-byte header
 
@@ -33,13 +39,23 @@ void readbmp(char* filename, uchar* array) {
 	int widthnew=width*3+padding;
 	uchar* data = calloc(widthnew, sizeof(uchar));
 
-	for (int i=0; i<height; i++ ) {
-		fread( data, sizeof(uchar), widthnew, img);
-		for (int j=0; j<width*3; j+=3) {
-			array[3 * i * width + j + 0] = data[j+0];
-			array[3 * i * width + j + 1] = data[j+1];
-			array[3 * i * width + j + 2] = data[j+2];
+	for (int row=0; row<height; row++ ) {
+		fread(data, sizeof(uchar), widthnew, img);
+		for (int col=0; col<width; col++) {
+			array[row][col].r = data[col*3+0];
+			array[row][col].g = data[col*3+1];
+			array[row][col].b = data[col*3+2];
 		}
 	}
 	fclose(img); //close the file
+}
+
+void invertColor(Pixel **array, int x, int y){
+	for(int row = 0; row < y; row++){
+		for(int col = 0; col < x; col++){
+			array[row][col].r = 255 - array[row][col].r;
+			array[row][col].g = 255 - array[row][col].g;
+			array[row][col].b = 255 - array[row][col].b;
+		}
+	}
 }

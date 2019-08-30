@@ -27,20 +27,31 @@ int main(int argc, char** argv) {
     // Print off a hello world message
     printf("Hello world from processor %s, rank %d out of %d processors\n",
            processor_name, world_rank, world_size);
+           
+
+    if(world_rank == 0){
+        Pixel **image = calloc(YSIZE, sizeof(Pixel *));
+        for(int row = 0; row < YSIZE; row++){
+            image[row] = calloc(XSIZE, sizeof(Pixel));
+        }
+	    
+        readbmp("before.bmp", image);
+
+	    // Alter the image here
+        invertColor(image, XSIZE, YSIZE);
+
+    	savebmp("after.bmp", image, XSIZE, YSIZE);
+	    
+        for(int row = 0; row < YSIZE; row++){
+            free(image[row]);
+        }
+        free(image);
+    };
+    
 
     // Finalize the MPI environment.
     MPI_Finalize();
 	
-	
-	
-	/*
-	uchar *image = calloc(XSIZE * YSIZE * 3, 1); // Three uchars per pixel (RGB)
-	readbmp("before.bmp", image);
 
-	// Alter the image here
-
-	savebmp("after.bmp", image, XSIZE, YSIZE);
-	free(image);
 	return 0;
-	*/
 }
