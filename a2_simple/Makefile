@@ -17,4 +17,4 @@ clean:
 
 phony : run
 run:
-	mpiexec -n $(n) ./$(TARGET) 
+	mpiexec -np $(n) ./$(TARGET) 
