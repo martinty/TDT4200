@@ -18,7 +18,7 @@ cd build
 
 if [[ $1 != "run" ]] && [[ $1 != "gdb" ]]; then
     echo "------------- Running cmake -------------"
-    cmake ..
+    cmake .. 
 fi
 
 if [[ $OSTYPE =~ "linux" ]]; then
@@ -26,11 +26,13 @@ if [[ $OSTYPE =~ "linux" ]]; then
     make -j4
     cd ../program
     if [[ $1 == "gdb" ]]; then
-        echo "------------- Running program with gdb --"
+        echo "------------- Running gdb ---------------"
+        echo "------------- Onlye one process ---------"
         gdb ./bitmap
     elif [[ $1 == "run" ]]; then
         echo "------------- Running program -----------"
-        ./bitmap
+        N=${2:-1}
+        mpiexec -n $N ./bitmap
     fi
 else
     echo "$OSTYPE is not supported for make and run!"
