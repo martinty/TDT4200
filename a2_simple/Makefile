@@ -13,8 +13,9 @@ main : main.o bitmap.o
 phony : clean
 clean: 
 	rm -f *.o
-	rm -f $(TARGET) 
+	rm -f $(TARGET)
+	rm -f after.bmp 
 
 phony : run
 run:
-	mpiexec -np $(n) ./$(TARGET) 
+	mpirun -np $(n) ./$(TARGET) 
