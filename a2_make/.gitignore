@@ -1,3 +1,4 @@
 *.o
 program/after.bmp
 *.out
+*zipList.txt
