@@ -1,23 +1,21 @@
-TARGET	= bitmap
+TARGET	= bitmap.out
 CC 		= mpicc
 CFLAGS = -Iinc/
 RUN		= mpirun
 
-all: main.o bitmap.o
-	$(CC) $(CFLAGS) main.o bitmap.o -o $(TARGET) 
+all: init main.o bitmap.o
+	$(CC) $(CFLAGS) obj/* -o program/$(TARGET) 
 
-main.o: src/main.c
-	$(CC) $(CFLAGS) -c src/main.c -o main.o
+%.o: src/%.c	
+	$(CC) $(CFLAGS) -c $< -o obj/$@
 
-bitmap.o: src/bitmap.c
-	$(CC) $(CFLAGS) -c src/bitmap.c -o bitmap.o
+phony: clean init
 
-phony : clean
+init:
+	mkdir -p obj
+	mkdir -p program
+
 clean: 
-	rm -f *.o
-	rm -f $(TARGET)
-	rm -f after.bmp 
-
-phony : run
-run:
-	$(RUN) -np $(n) ./$(TARGET) 
+	rm -f obj/.o*
+	rm -f program/*.out
+	rm -f program/after.bmp 
