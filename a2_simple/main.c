@@ -28,46 +28,28 @@ int main(int argc, char** argv) {
     MPI_Type_commit(&pixel_dt);
 
     if(world_rank == 0){
-        Pixel **image = calloc(YSIZE, sizeof(Pixel *));
-        for(int row = 0; row < YSIZE; row++){
-            image[row] = calloc(XSIZE, sizeof(Pixel));
-        }
-
+        Pixel *image = calloc(YSIZE*XSIZE, sizeof(Pixel));
         readbmp("before.bmp", image);
 
         int rest = YSIZE % world_size;
         for(int i = 1; i < world_size; i++){
-            MPI_Send(&image[yScale*i+rest][0], yScale*XSIZE, pixel_dt, i, 0, MPI_COMM_WORLD);
+            MPI_Send(&image[(yScale*i+rest)*XSIZE], yScale*XSIZE, pixel_dt, i, 0, MPI_COMM_WORLD);
         }
 
         invertColor(image, XSIZE, yScale + rest);
 
         for(int i = 1; i < world_size; i++){
-            MPI_Recv(&image[yScale*i+rest][0], yScale*XSIZE, pixel_dt, i, MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(&image[(yScale*i+rest)*XSIZE], yScale*XSIZE, pixel_dt, i, MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
 
 	    savebmp("after.bmp", image, XSIZE, YSIZE);
-
-        for(int row = 0; row < YSIZE; row++){
-            free(image[row]);
-        }
         free(image);
     }
     else{
-        Pixel **data = calloc(yScale, sizeof(Pixel *));
-        for(int row = 0; row < yScale; row++){
-            data[row] = calloc(XSIZE, sizeof(Pixel));
-        }
-
-        MPI_Recv(&data[0][0], yScale*XSIZE, pixel_dt, 0, MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
+        Pixel *data = calloc(yScale*XSIZE, sizeof(Pixel));
+        MPI_Recv(&data[0], yScale*XSIZE, pixel_dt, 0, MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         invertColor(data, XSIZE, yScale);
-
-        MPI_Send(&data[0][0], yScale*XSIZE, pixel_dt, 0, 0, MPI_COMM_WORLD);
-
-        for(int row = 0; row < yScale; row++){
-            free(data[row]);
-        }
+        MPI_Send(&data[0], yScale*XSIZE, pixel_dt, 0, 0, MPI_COMM_WORLD);
         free(data);
     }
     

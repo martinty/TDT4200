@@ -9,10 +9,10 @@ typedef struct {
     uchar b;
 } Pixel;
 
-void readbmp(char *filename, Pixel **array);
-void savebmp(char *name, Pixel **buffer, int x, int y);
+void readbmp(char *filename, Pixel *array);
+void savebmp(char *name, Pixel *buffer, int x, int y);
 
-void invertColor(Pixel **array, int x, int y);
+void invertColor(Pixel *array, int x, int y);
 
 
 #endif
