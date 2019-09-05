@@ -30,7 +30,7 @@ if [[ $OSTYPE =~ "linux" ]]; then
         gdb ./bitmap
     elif [[ $1 == "run" ]]; then
         echo "------------- Running program -----------"
-        ./bitmap
+        ./bitmap.out
     fi
 else
     echo "$OSTYPE is not supported for make and run!"
