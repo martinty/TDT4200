@@ -7,7 +7,7 @@ void savebmp(char *name, Pixel *buffer, int x, int y) {
 	FILE *f=fopen(name,"wb");
 	if(!f) {
 		printf("Error writing image to disk.\n");
-		return;
+		exit(1);
 	}
 	unsigned int size=x*y*3+54;
 	uchar header[54]={'B','M',size&255,(size>>8)&255,(size>>16)&255,size>>24,0,
@@ -23,7 +23,7 @@ void readbmp(char* filename, Pixel* array) {
 	FILE* img = fopen(filename, "rb");   //read the file
 	if(!img){
 		printf("Error reading image from disk.\n");
-		return;
+		exit(1);
 	}
 	uchar header[54];
 	fread(header, sizeof(uchar), 54, img); // read the 54-byte header
@@ -54,6 +54,29 @@ void invertColor(Pixel *array, int x, int y){
 			array[row*x + col].r = 255 - array[row*x + col].r;
 			array[row*x + col].g = 255 - array[row*x + col].g;
 			array[row*x + col].b = 255 - array[row*x + col].b;
+		}
+	}
+}
+
+void flipLeftRight(Pixel *array, int x, int y){
+	Pixel lefSideTemp;
+	for(int row = 0; row < y; row++){
+		for(int col = 0; col < x/2; col++){
+			lefSideTemp = array[row*x + col]; 
+			array[row*x + col] = array[row*x + (x-col)];
+			array[row*x + (x-col)] = lefSideTemp;
+		}
+	}
+}
+
+void doubleImageSize(Pixel *array, Pixel *newArray, int x, int y){
+	for(int row = 0; row < y; row++){
+		for(int col = 0; col < x; col++){
+			Pixel pixel = array[row*x + col];
+			newArray[(row*2)*x*2 + (col*2)] = pixel;
+			newArray[(row*2)*x*2 + (col*2+1)] = pixel;
+			newArray[(row*2+1)*x*2 + (col*2)] = pixel;
+			newArray[(row*2+1)*x*2 + (col*2+1)] = pixel;
 		}
 	}
 }

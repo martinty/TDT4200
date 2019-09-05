@@ -9,4 +9,4 @@ set(EXECUTABLE_OUTPUT_PATH ${CMAKE_SOURCE_DIR}/program)
 include_directories(inc)
 file(GLOB_RECURSE SRC_FILES src/*.c)
 
-add_executable(bitmap ${SRC_FILES})
+add_executable(bitmap.out ${SRC_FILES})
