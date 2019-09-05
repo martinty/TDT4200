@@ -12,7 +12,7 @@ find $FOLDER/inc -type f >> $FOLDER/$ZIPLIST
 find $FOLDER -name "run.sh" >> $FOLDER/$ZIPLIST
 find $FOLDER -name "do.sh" >> $FOLDER/$ZIPLIST
 find $FOLDER -name "CMakeLists.txt" >> $FOLDER/$ZIPLIST
-find $FOLDER -name "Makefile" >> $FOLDER/$ZIPLIST
+find $FOLDER -maxdepth 1 -name "Makefile" >> $FOLDER/$ZIPLIST
 
 for ARG in ${@:2} 
 do
