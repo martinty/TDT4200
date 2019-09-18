@@ -3,7 +3,6 @@
 #include <string.h>
 #include <getopt.h>
 #include <stdlib.h>
-#include <time.h>
 #include <mpi.h>
 #include "bitmap.h"
 
@@ -38,7 +37,7 @@ int const laplacian3Kernel[] = {-1, -1, -1,
                                 -1, -1, -1};
 float const laplacian3KernelFactor = (float)1.0;
 
-//Bonus Kernel:
+// Bonus Kernel:
 
 int const gaussianKernel[] = {1, 4, 6, 4, 1,
                               4, 16, 24, 16, 4,
@@ -49,7 +48,6 @@ int const gaussianKernel[] = {1, 4, 6, 4, 1,
 float const gaussianKernelFactor = (float)1.0 / 256.0;
 
 // Helper function to swap bmpImageChannel pointers
-
 void swapImageChannel(bmpImageChannel **one, bmpImageChannel **two)
 {
     bmpImageChannel *helper = *two;
@@ -178,11 +176,11 @@ int main(int argc, char **argv)
     output = calloc(strlen(argv[optind]) + 1, sizeof(char));
     strncpy(output, argv[optind], strlen(argv[optind]));
     optind++;
-    //  End of Parameter parsing!
+    // End of Parameter parsing!
 
     if (world_rank == 0)
     {
-        //Create the BMP image and load it from disk.
+        // Create the BMP image and load it from disk.
         bmpImage *image = newBmpImage(0, 0);
         if (image == NULL)
         {
@@ -217,7 +215,7 @@ int main(int argc, char **argv)
             goto error_exit;
         }
 
-        //Here we do the actual computation!
+        // Here we do the actual computation!
         // imageChannel->data is a 2-dimensional array of unsigned char which is accessed row first ([y][x])
         bmpImageChannel *processImageChannel = newBmpImageChannel(imageChannel->width, imageChannel->height);
         for (unsigned int i = 0; i < iterations; i++)
@@ -227,9 +225,9 @@ int main(int argc, char **argv)
                         imageChannel->width,
                         imageChannel->height,
                         (int *)laplacian1Kernel, 3, laplacian1KernelFactor
-                        //                  (int *)laplacian2Kernel, 3, laplacian2KernelFactor
-                        //                  (int *)laplacian3Kernel, 3, laplacian3KernelFactor
-                        //                  (int *)gaussianKernel, 5, gaussianKernelFactor
+//                        (int *)laplacian2Kernel, 3, laplacian2KernelFactor
+//                        (int *)laplacian3Kernel, 3, laplacian3KernelFactor
+//                        (int *)gaussianKernel, 5, gaussianKernelFactor
             );
             swapImageChannel(&processImageChannel, &imageChannel);
         }
