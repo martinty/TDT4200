@@ -25,7 +25,7 @@ function run_f {
     cd $SCRIPTPATH/program
     echo "------------- Running program -----------"
     echo "Using $N processe(s) and $I iteration(s)"
-    mpirun -np $N *.out before.bmp after.bmp -i $I
+    time (mpirun -np $N *.out before.bmp after.bmp -i $I)
 }
 function clean_f {
     cd $SCRIPTPATH/build
