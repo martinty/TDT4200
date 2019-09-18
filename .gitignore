@@ -2,6 +2,6 @@
 *.vscode
 *.o
 *.out
-*.txt
+zipList.txt
 */build
 */program/after.bmp
