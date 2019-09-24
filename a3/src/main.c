@@ -114,6 +114,26 @@ void help(char const *exec, char const opt, char const *optarg)
     fprintf(out, "Example: %s in.bmp out.bmp -i 10000\n", exec);
 }
 
+void errorExit(char *output, char *input)
+{
+    if (input)
+        free(input);
+    if (output)
+        free(output);
+    MPI_Finalize();
+    exit(1);
+}
+
+void gracefulExit(char *output, char *input)
+{
+    if (input)
+        free(input);
+    if (output)
+        free(output);
+    MPI_Finalize();
+    exit(0);
+}
+
 int main(int argc, char **argv)
 {
     // Initialize the MPI environment
@@ -127,61 +147,73 @@ int main(int argc, char **argv)
     int world_rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
-    // Parameter parsing, don't change this!
-    unsigned int iterations = 1;
+    // Make Pixel datatype
+    MPI_Datatype pixel_dt;
+    MPI_Type_contiguous(3, MPI_UNSIGNED_CHAR, &pixel_dt);
+    MPI_Type_commit(&pixel_dt);
+
+    // Make info datatype
+    MPI_Datatype info_dt;
+    MPI_Type_contiguous(3, MPI_UNSIGNED, &info_dt);
+    MPI_Type_commit(&info_dt);
+
+    // Image
+    bmpImage *image = newBmpImage(0, 0);
     char *output = NULL;
     char *input = NULL;
-    int ret = 0;
-
-    static struct option const long_options[] = {
-        {"help", no_argument, 0, 'h'},
-        {"iterations", required_argument, 0, 'i'},
-        {0, 0, 0, 0}};
-
-    static char const *short_options = "hi:";
-    {
-        char *endptr;
-        int c;
-        int option_index = 0;
-        while ((c = getopt_long(argc, argv, short_options, long_options, &option_index)) != -1)
-        {
-            switch (c)
-            {
-            case 'h':
-                help(argv[0], 0, NULL);
-                goto graceful_exit;
-            case 'i':
-                iterations = strtol(optarg, &endptr, 10);
-                if (endptr == optarg)
-                {
-                    help(argv[0], c, optarg);
-                    goto error_exit;
-                }
-                break;
-            default:
-                abort();
-            }
-        }
-    }
-
-    if (argc <= (optind + 1))
-    {
-        help(argv[0], ' ', "Not enough arugments");
-        goto error_exit;
-    }
-    input = calloc(strlen(argv[optind]) + 1, sizeof(char));
-    strncpy(input, argv[optind], strlen(argv[optind]));
-    optind++;
-
-    output = calloc(strlen(argv[optind]) + 1, sizeof(char));
-    strncpy(output, argv[optind], strlen(argv[optind]));
-    optind++;
-    // End of Parameter parsing!
+    information info;
 
     if (world_rank == 0)
     {
+        // Parameter parsing, don't change this!
+        unsigned int iterations = 1;
+
+        static struct option const long_options[] = {
+            {"help", no_argument, 0, 'h'},
+            {"iterations", required_argument, 0, 'i'},
+            {0, 0, 0, 0}};
+
+        static char const *short_options = "hi:";
+        {
+            char *endptr;
+            int c;
+            int option_index = 0;
+            while ((c = getopt_long(argc, argv, short_options, long_options, &option_index)) != -1)
+            {
+                switch (c)
+                {
+                case 'h':
+                    help(argv[0], 0, NULL);
+                    gracefulExit(output, input);
+                case 'i':
+                    iterations = strtol(optarg, &endptr, 10);
+                    if (endptr == optarg)
+                    {
+                        help(argv[0], c, optarg);
+                        errorExit(output, input);
+                    }
+                    break;
+                default:
+                    abort();
+                }
+            }
+        }
+
+        if (argc <= (optind + 1))
+        {
+            help(argv[0], ' ', "Not enough arugments");
+            errorExit(output, input);
+        }
+        input = calloc(strlen(argv[optind]) + 1, sizeof(char));
+        strncpy(input, argv[optind], strlen(argv[optind]));
+        optind++;
+
+        output = calloc(strlen(argv[optind]) + 1, sizeof(char));
+        strncpy(output, argv[optind], strlen(argv[optind]));
+        optind++;
+        // End of Parameter parsing!
+
         // Create the BMP image and load it from disk.
-        bmpImage *image = newBmpImage(0, 0);
         if (image == NULL)
         {
             fprintf(stderr, "Could not allocate new image!\n");
@@ -190,80 +222,121 @@ int main(int argc, char **argv)
         {
             fprintf(stderr, "Could not load bmp image '%s'!\n", input);
             freeBmpImage(image);
-            goto error_exit;
+            errorExit(output, input);
         }
 
-        // Create a single color channel image. It is easier to work just with one color
-        bmpImageChannel *imageChannel = newBmpImageChannel(image->width, image->height);
-        if (imageChannel == NULL)
-        {
-            fprintf(stderr, "Could not allocate new image channel!\n");
-            freeBmpImage(image);
-            goto error_exit;
-        }
+        // Update info
+        info.iterations = iterations;
+        info.imageWidth = image->width;
+        info.imageHeight = image->height;
+    }
 
-        // Extract from the loaded image an average over all colors - nothing else than
-        // a black and white representation
-        // extractImageChannel and mapImageChannel need the images to be in the exact
-        // same dimensions!
-        // Other prepared extraction functions are extractRed, extractGreen, extractBlue
-        if (extractImageChannel(imageChannel, image, extractAverage) != 0)
-        {
-            fprintf(stderr, "Could not extract image channel!\n");
-            freeBmpImage(image);
-            freeBmpImageChannel(imageChannel);
-            goto error_exit;
-        }
+    MPI_Bcast(&info, 1, info_dt, 0, MPI_COMM_WORLD);
 
-        // Here we do the actual computation!
-        // imageChannel->data is a 2-dimensional array of unsigned char which is accessed row first ([y][x])
-        bmpImageChannel *processImageChannel = newBmpImageChannel(imageChannel->width, imageChannel->height);
-        for (unsigned int i = 0; i < iterations; i++)
-        {
-            applyKernel(processImageChannel->data,
-                        imageChannel->data,
-                        imageChannel->width,
-                        imageChannel->height,
-                        (int *)laplacian1Kernel, 3, laplacian1KernelFactor
-//                        (int *)laplacian2Kernel, 3, laplacian2KernelFactor
-//                        (int *)laplacian3Kernel, 3, laplacian3KernelFactor
-//                        (int *)gaussianKernel, 5, gaussianKernelFactor
-            );
-            swapImageChannel(&processImageChannel, &imageChannel);
-        }
-        freeBmpImageChannel(processImageChannel);
+    int sendCounts[world_size];
+    int displs[world_size];
+    int heightScale[world_size];
+    int offset = 0;
 
-        // Map our single color image back to a normal BMP image with 3 color channels
-        // mapEqual puts the color value on all three channels the same way
-        // other mapping functions are mapRed, mapGreen, mapBlue
-        if (mapImageChannel(image, imageChannel, mapEqual) != 0)
-        {
-            fprintf(stderr, "Could not map image channel!\n");
-            freeBmpImage(image);
-            freeBmpImageChannel(imageChannel);
-            goto error_exit;
-        }
+    heightScale[0] = info.imageHeight / world_size + info.imageHeight % world_size;
+    sendCounts[0] = heightScale[0] * info.imageWidth;
+    displs[0] = offset;
+    offset += sendCounts[0];
+
+    for (int i = 1; i < world_size; i++)
+    {
+        heightScale[i] = info.imageHeight / world_size;
+        sendCounts[i] = heightScale[i] * info.imageWidth;
+        displs[i] = offset;
+        offset += sendCounts[i];
+    }
+
+    bmpImage *buf = newBmpImage(info.imageWidth, heightScale[world_rank]);
+    MPI_Scatterv(image->rawdata, sendCounts, displs, pixel_dt, buf->rawdata, sendCounts[world_rank], pixel_dt, 0, MPI_COMM_WORLD);
+
+    //  *** Work start ***
+
+    // Create a single color channel image. It is easier to work just with one color
+    bmpImageChannel *imageChannel = newBmpImageChannel(buf->width, buf->height);
+    if (imageChannel == NULL)
+    {
+        fprintf(stderr, "Could not allocate new image channel!\n");
+        freeBmpImage(image);
+        freeBmpImage(buf);
+        errorExit(output, input);
+    }
+
+    // Extract from the loaded image an average over all colors - nothing else than
+    // a black and white representation
+    // extractImageChannel and mapImageChannel need the images to be in the exact
+    // same dimensions!
+    // Other prepared extraction functions are extractRed, extractGreen, extractBlue
+    if (extractImageChannel(imageChannel, buf, extractAverage) != 0)
+    {
+        fprintf(stderr, "Could not extract image channel!\n");
+        freeBmpImage(image);
+        freeBmpImage(buf);
         freeBmpImageChannel(imageChannel);
+        errorExit(output, input);
+    }
 
+    // Here we do the actual computation!
+    // imageChannel->data is a 2-dimensional array of unsigned char which is accessed row first ([y][x])
+    bmpImageChannel *processImageChannel = newBmpImageChannel(imageChannel->width, imageChannel->height);
+    for (unsigned int i = 0; i < info.iterations; i++)
+    {
+        applyKernel(processImageChannel->data,
+                    imageChannel->data,
+                    imageChannel->width,
+                    imageChannel->height,
+                    (int *)laplacian1Kernel, 3, laplacian1KernelFactor
+                    //                        (int *)laplacian2Kernel, 3, laplacian2KernelFactor
+                    //                        (int *)laplacian3Kernel, 3, laplacian3KernelFactor
+                    //                        (int *)gaussianKernel, 5, gaussianKernelFactor
+        );
+        swapImageChannel(&processImageChannel, &imageChannel);
+    }
+    freeBmpImageChannel(processImageChannel);
+
+    // Map our single color image back to a normal BMP image with 3 color channels
+    // mapEqual puts the color value on all three channels the same way
+    // other mapping functions are mapRed, mapGreen, mapBlue
+    if (mapImageChannel(buf, imageChannel, mapEqual) != 0)
+    {
+        fprintf(stderr, "Could not map image channel!\n");
+        freeBmpImage(image);
+        freeBmpImage(buf);
+        freeBmpImageChannel(imageChannel);
+        errorExit(output, input);
+    }
+    freeBmpImageChannel(imageChannel);
+
+    // *** Work stop ***
+
+    MPI_Gatherv(buf->rawdata, sendCounts[world_rank], pixel_dt, image->rawdata, sendCounts, displs, pixel_dt, 0, MPI_COMM_WORLD);
+    freeBmpImage(buf);
+
+    if (world_rank == 0)
+    {
         //Write the image back to disk
         if (saveBmpImage(image, output) != 0)
         {
             fprintf(stderr, "Could not save output to '%s'!\n", output);
             freeBmpImage(image);
-            goto error_exit;
+            errorExit(output, input);
         }
-
-    graceful_exit:
-        ret = 0;
-    error_exit:
-        if (input)
-            free(input);
-        if (output)
-            free(output);
     }
+
+    // Free data
+    if (image)
+        freeBmpImage(image);
+    if (input)
+        free(input);
+    if (output)
+        free(output);
 
     // Finalize the MPI environment.
     MPI_Finalize();
 
-    return ret;
+    return 0;
 };
