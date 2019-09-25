@@ -80,7 +80,7 @@ void applyKernel(unsigned char **out, unsigned char **in, unsigned int width, un
 
                     else if (xx >= 0 && xx < (int)width && yy == -1 && rank != 0)
                         aggregate += ghostCells->north[xx] * kernel[nky * kernelDim + nkx];
-                        
+
                     else if (xx >= 0 && xx < (int)width && yy == (int)height && rank != size - 1)
                         aggregate += ghostCells->south[xx] * kernel[nky * kernelDim + nkx];
                 }
@@ -124,7 +124,7 @@ void help(char const *exec, char const opt, char const *optarg)
 
 void errorExit(char *output, char *input, bmpImage *image, bmpImage *buf, bmpImageChannel *imageChannel, borders *ghostCells, int status)
 {
-    if(ghostCells)
+    if (ghostCells)
         freeBorders(ghostCells);
     if (imageChannel)
         freeBmpImageChannel(imageChannel);
