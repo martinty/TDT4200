@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <mpi.h>
 #include "bitmap.h"
+#include "border.h"
 
 // Convolutional Kernel Examples, each with dimension 3,
 // gaussian kernel with dimension 5
@@ -56,7 +57,8 @@ void swapImageChannel(bmpImageChannel **one, bmpImageChannel **two)
 }
 
 // Apply convolutional kernel on image data
-void applyKernel(unsigned char **out, unsigned char **in, unsigned int width, unsigned int height, int *kernel, unsigned int kernelDim, float kernelFactor)
+void applyKernel(unsigned char **out, unsigned char **in, unsigned int width, unsigned int height, borders *ghostCells, int rank, int size,
+                 int *kernel, unsigned int kernelDim, float kernelFactor)
 {
     unsigned int const kernelCenter = (kernelDim / 2);
     for (unsigned int y = 0; y < height; y++)
@@ -75,6 +77,12 @@ void applyKernel(unsigned char **out, unsigned char **in, unsigned int width, un
                     int xx = x + (kx - kernelCenter);
                     if (xx >= 0 && xx < (int)width && yy >= 0 && yy < (int)height)
                         aggregate += in[yy][xx] * kernel[nky * kernelDim + nkx];
+
+                    else if (xx >= 0 && xx < (int)width && yy == -1 && rank != 0)
+                        aggregate += ghostCells->north[xx] * kernel[nky * kernelDim + nkx];
+                        
+                    else if (xx >= 0 && xx < (int)width && yy == (int)height && rank != size - 1)
+                        aggregate += ghostCells->south[xx] * kernel[nky * kernelDim + nkx];
                 }
             }
             aggregate *= kernelFactor;
@@ -114,8 +122,10 @@ void help(char const *exec, char const opt, char const *optarg)
     fprintf(out, "Example: %s in.bmp out.bmp -i 10000\n", exec);
 }
 
-void errorExit(char *output, char *input, bmpImage *image, bmpImage *buf, bmpImageChannel *imageChannel, int status)
+void errorExit(char *output, char *input, bmpImage *image, bmpImage *buf, bmpImageChannel *imageChannel, borders *ghostCells, int status)
 {
+    if(ghostCells)
+        freeBorders(ghostCells);
     if (imageChannel)
         freeBmpImageChannel(imageChannel);
     if (buf)
@@ -158,6 +168,7 @@ int main(int argc, char **argv)
     char *input = NULL;
     bmpImage *buf = NULL;
     bmpImageChannel *imageChannel = NULL;
+    borders *ghostCells = NULL;
     information info;
 
     if (world_rank == 0)
@@ -181,13 +192,13 @@ int main(int argc, char **argv)
                 {
                 case 'h':
                     help(argv[0], 0, NULL);
-                    errorExit(output, input, image, buf, imageChannel, 0);
+                    errorExit(output, input, image, buf, imageChannel, ghostCells, 0);
                 case 'i':
                     iterations = strtol(optarg, &endptr, 10);
                     if (endptr == optarg)
                     {
                         help(argv[0], c, optarg);
-                        errorExit(output, input, image, buf, imageChannel, 1);
+                        errorExit(output, input, image, buf, imageChannel, ghostCells, 1);
                     }
                     break;
                 default:
@@ -199,7 +210,7 @@ int main(int argc, char **argv)
         if (argc <= (optind + 1))
         {
             help(argv[0], ' ', "Not enough arugments");
-            errorExit(output, input, image, buf, imageChannel, 1);
+            errorExit(output, input, image, buf, imageChannel, ghostCells, 1);
         }
         input = calloc(strlen(argv[optind]) + 1, sizeof(char));
         strncpy(input, argv[optind], strlen(argv[optind]));
@@ -214,7 +225,7 @@ int main(int argc, char **argv)
         if (loadBmpImage(image, input) != 0)
         {
             fprintf(stderr, "Could not load bmp image '%s'!\n", input);
-            errorExit(output, input, image, buf, imageChannel, 1);
+            errorExit(output, input, image, buf, imageChannel, ghostCells, 1);
         }
 
         // Update info
@@ -243,6 +254,7 @@ int main(int argc, char **argv)
         offset += sendCounts[i];
     }
 
+    ghostCells = newBorders(info.imageWidth, 1, 1, 0, 1, 0);
     buf = newBmpImage(info.imageWidth, heightScale[world_rank]);
     MPI_Scatterv(image->rawdata, sendCounts, displs, pixel_dt, buf->rawdata, sendCounts[world_rank], pixel_dt, 0, MPI_COMM_WORLD);
 
@@ -253,7 +265,7 @@ int main(int argc, char **argv)
     if (imageChannel == NULL)
     {
         fprintf(stderr, "Could not allocate new image channel!\n");
-        errorExit(output, input, image, buf, imageChannel, 1);
+        errorExit(output, input, image, buf, imageChannel, ghostCells, 1);
     }
 
     // Extract from the loaded image an average over all colors - nothing else than
@@ -264,7 +276,7 @@ int main(int argc, char **argv)
     if (extractImageChannel(imageChannel, buf, extractAverage) != 0)
     {
         fprintf(stderr, "Could not extract image channel!\n");
-        errorExit(output, input, image, buf, imageChannel, 1);
+        errorExit(output, input, image, buf, imageChannel, ghostCells, 1);
     }
 
     // Here we do the actual computation!
@@ -272,10 +284,16 @@ int main(int argc, char **argv)
     bmpImageChannel *processImageChannel = newBmpImageChannel(imageChannel->width, imageChannel->height);
     for (unsigned int i = 0; i < info.iterations; i++)
     {
+        // Exchange borders
+        exchangeHorizontalBorders(imageChannel, ghostCells, world_rank, world_size);
+
         applyKernel(processImageChannel->data,
                     imageChannel->data,
                     imageChannel->width,
                     imageChannel->height,
+                    ghostCells,
+                    world_rank,
+                    world_size,
                     (int *)laplacian1Kernel, 3, laplacian1KernelFactor
                     //                        (int *)laplacian2Kernel, 3, laplacian2KernelFactor
                     //                        (int *)laplacian3Kernel, 3, laplacian3KernelFactor
@@ -291,7 +309,7 @@ int main(int argc, char **argv)
     if (mapImageChannel(buf, imageChannel, mapEqual) != 0)
     {
         fprintf(stderr, "Could not map image channel!\n");
-        errorExit(output, input, image, buf, imageChannel, 1);
+        errorExit(output, input, image, buf, imageChannel, ghostCells, 1);
     }
 
     // *** Work stop ***
@@ -304,11 +322,13 @@ int main(int argc, char **argv)
         if (saveBmpImage(image, output) != 0)
         {
             fprintf(stderr, "Could not save output to '%s'!\n", output);
-            errorExit(output, input, image, buf, imageChannel, 1);
+            errorExit(output, input, image, buf, imageChannel, ghostCells, 1);
         }
     }
 
     // Free data
+    if (ghostCells)
+        freeBorders(ghostCells);
     if (imageChannel)
         freeBmpImageChannel(imageChannel);
     if (buf)

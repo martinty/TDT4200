@@ -10,13 +10,6 @@ typedef struct
 
 typedef struct
 {
-    unsigned int iterations;
-    unsigned int imageWidth;
-    unsigned int imageHeight;
-} information;
-
-typedef struct
-{
     unsigned int width;
     unsigned int height;
     pixel *rawdata;
@@ -30,6 +23,13 @@ typedef struct
     unsigned char *rawdata;
     unsigned char **data;
 } bmpImageChannel;
+
+typedef struct
+{
+    unsigned int iterations;
+    unsigned int imageWidth;
+    unsigned int imageHeight;
+} information;
 
 bmpImage *newBmpImage(unsigned int const width, unsigned int const height);
 void freeBmpImage(bmpImage *image);
