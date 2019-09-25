@@ -1,7 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <mpi.h>
 #include "bitmap.h"
 
 #define BMP_HEADER_SIZE 54
