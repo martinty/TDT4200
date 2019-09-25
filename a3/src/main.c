@@ -16,9 +16,9 @@ int const sobelYKernel[] = {-1, -2, -1,
                             1, 2, 1};
 float const sobelYKernelFactor = (float)1.0;
 
-int const sobelXKernel[] = {-1, -0, -1,
-                            -2, 0, -2,
-                            -1, 0, -1, 0};
+int const sobelXKernel[] = {-1, 0, 1,
+                            -2, 0, 2,
+                            -1, 0, 1};
 float const sobelXKernelFactor = (float)1.0;
 
 int const laplacian1Kernel[] = {-1, -4, -1,
