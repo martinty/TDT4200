@@ -161,6 +161,7 @@ int main(int argc, char **argv)
     bmpImageChannel *imageChannel = NULL;
     information info;
 
+
     if (world_rank == 0)
     {
         // Parameter parsing, don't change this!
@@ -230,7 +231,8 @@ int main(int argc, char **argv)
     int displs[world_size];
     int heightScale[world_size];
     int offset = 0;
-    const int ghostRows = 2;
+    int kernelDim = 3; // Need to be the same as kernelDim in applyKernel()
+    int ghostRows = kernelDim/2;
 
     heightScale[0] = info.imageHeight / world_size + info.imageHeight % world_size;
     sendCounts[0] = heightScale[0] * info.imageWidth;
@@ -245,9 +247,9 @@ int main(int argc, char **argv)
         offset += sendCounts[i];
     }
 
-    localImage = newBmpImage(info.imageWidth, heightScale[world_rank] + ghostRows);
-    MPI_Scatterv(image->rawdata, sendCounts, displs, pixel_dt, localImage->rawdata + info.imageWidth, sendCounts[world_rank], pixel_dt, 0, MPI_COMM_WORLD);
-
+    localImage = newBmpImage(info.imageWidth, heightScale[world_rank] + ghostRows*2);
+    MPI_Scatterv(image->rawdata, sendCounts, displs, pixel_dt, localImage->rawdata + info.imageWidth*ghostRows, sendCounts[world_rank], pixel_dt, 0, MPI_COMM_WORLD);
+ Signal code: Invalid permissions (2)
     //  *** Work start ***
 
     // Create a single color channel image. It is easier to work just with one color
@@ -275,16 +277,16 @@ int main(int argc, char **argv)
     for (unsigned int i = 0; i < info.iterations; i++)
     {
         // Exchange borders
-        exchangeHorizontalBorders(imageChannel, world_rank, world_size);
+        exchangeHorizontalBorders(imageChannel, ghostRows, world_rank, world_size);
 
         applyKernel(processImageChannel->data,
                     imageChannel->data,
                     imageChannel->width,
                     imageChannel->height,
                     (int *)laplacian1Kernel, 3, laplacian1KernelFactor
-                    //                        (int *)laplacian2Kernel, 3, laplacian2KernelFactor
-                    //                        (int *)laplacian3Kernel, 3, laplacian3KernelFactor
-                    //                        (int *)gaussianKernel, 5, gaussianKernelFactor
+                    //(int *)laplacian2Kernel, 3, laplacian2KernelFactor
+                    //(int *)laplacian3Kernel, 3, laplacian3KernelFactor
+                    //(int *)gaussianKernel, 5, gaussianKernelFactor
         );
         swapImageChannel(&processImageChannel, &imageChannel);
     }
@@ -301,7 +303,7 @@ int main(int argc, char **argv)
 
     // *** Work stop ***
 
-    MPI_Gatherv(localImage->rawdata + info.imageWidth, sendCounts[world_rank], pixel_dt, image->rawdata, sendCounts, displs, pixel_dt, 0, MPI_COMM_WORLD);
+    MPI_Gatherv(localImage->rawdata + info.imageWidth*ghostRows, sendCounts[world_rank], pixel_dt, image->rawdata, sendCounts, displs, pixel_dt, 0, MPI_COMM_WORLD);
 
     if (world_rank == 0)
     {
