@@ -25,7 +25,7 @@ function run_f {
     cd $SCRIPTPATH/program
     echo "------------- Running program -----------"
     echo "Using $N process(es) and $I iteration(s)"
-    echo "Wall-time with laplacian1Kernel"
+    echo "Wall-time with time():"
     time (mpirun -np $N *.out before.bmp after.bmp -i $I)
 }
 function clean_f {
