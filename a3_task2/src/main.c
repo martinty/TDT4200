@@ -249,7 +249,7 @@ int main(int argc, char **argv)
 
     localImage = newBmpImage(info.imageWidth, heightScale[world_rank] + ghostRows*2);
     MPI_Scatterv(image->rawdata, sendCounts, displs, pixel_dt, localImage->rawdata + info.imageWidth*ghostRows, sendCounts[world_rank], pixel_dt, 0, MPI_COMM_WORLD);
- Signal code: Invalid permissions (2)
+
     //  *** Work start ***
 
     // Create a single color channel image. It is easier to work just with one color
