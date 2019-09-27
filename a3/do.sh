@@ -25,7 +25,7 @@ function run_f {
     cd $SCRIPTPATH/program
     echo "------------- Running program -----------"
     echo "Using $N process(es) and $I iteration(s)"
-    echo "Wall-time for laplacian1Kernel"
+    echo "Wall-time with laplacian1Kernel"
     time (mpirun -np $N *.out before.bmp after.bmp -i $I)
 }
 function clean_f {
@@ -57,12 +57,13 @@ elif [[ $1 == "clean" ]]; then
 elif [[ $1 == "remove" ]]; then
     remove_f
 else
-    echo "Commands: "
+    echo "Commands:" 
     echo "      build"
     echo "      make"
-    echo "      run <n>"
-    echo "      update <n>"
-    echo "      all <n>"
+    echo "      run <n> <i>"
+    echo "      update <n> <i>"
+    echo "      all <n> <i>"
     echo "      clean"
     echo "      remove"
+    echo "n=processes and i=iterations"
 fi
