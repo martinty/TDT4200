@@ -37,7 +37,7 @@ void exchangeNorthBorder(bmpImageChannel *imageChannel, int rank)
     {
         // Send north border to rank-1 and recv south border from rank-1 as new north border
         MPI_Sendrecv(imageChannel->rawdata + imageChannel->width, imageChannel->width, MPI_UNSIGNED_CHAR, rank - 1, 0,
-                     imageChannel->rawdata                     , imageChannel->width, MPI_UNSIGNED_CHAR, rank - 1, 0,
+                     imageChannel->rawdata                      , imageChannel->width, MPI_UNSIGNED_CHAR, rank - 1, 0,
                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         //printf("Rank %d: Send north border to %d and recv south border from %d as new north border \n", rank, rank - 1, rank - 1);
     }

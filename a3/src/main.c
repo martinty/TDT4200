@@ -115,12 +115,12 @@ void help(char const *exec, char const opt, char const *optarg)
     fprintf(out, "Example: %s in.bmp out.bmp -i 10000\n", exec);
 }
 
-void errorExit(char *output, char *input, bmpImage *image, bmpImage *buf, bmpImageChannel *imageChannel, int status)
+void errorExit(char *output, char *input, bmpImage *image, bmpImage *localImage, bmpImageChannel *imageChannel, int status)
 {
     if (imageChannel)
         freeBmpImageChannel(imageChannel);
-    if (buf)
-        freeBmpImage(buf);
+    if (localImage)
+        freeBmpImage(localImage);
     if (image)
         free(image);
     if (input)
@@ -157,7 +157,7 @@ int main(int argc, char **argv)
     bmpImage *image = newBmpImage(0, 0);
     char *output = NULL;
     char *input = NULL;
-    bmpImage *buf = NULL;
+    bmpImage *localImage = NULL;
     bmpImageChannel *imageChannel = NULL;
     information info;
 
@@ -182,13 +182,13 @@ int main(int argc, char **argv)
                 {
                 case 'h':
                     help(argv[0], 0, NULL);
-                    errorExit(output, input, image, buf, imageChannel, 0);
+                    errorExit(output, input, image, localImage, imageChannel, 0);
                 case 'i':
                     iterations = strtol(optarg, &endptr, 10);
                     if (endptr == optarg)
                     {
                         help(argv[0], c, optarg);
-                        errorExit(output, input, image, buf, imageChannel, 1);
+                        errorExit(output, input, image, localImage, imageChannel, 1);
                     }
                     break;
                 default:
@@ -200,7 +200,7 @@ int main(int argc, char **argv)
         if (argc <= (optind + 1))
         {
             help(argv[0], ' ', "Not enough arugments");
-            errorExit(output, input, image, buf, imageChannel, 1);
+            errorExit(output, input, image, localImage, imageChannel, 1);
         }
         input = calloc(strlen(argv[optind]) + 1, sizeof(char));
         strncpy(input, argv[optind], strlen(argv[optind]));
@@ -215,7 +215,7 @@ int main(int argc, char **argv)
         if (loadBmpImage(image, input) != 0)
         {
             fprintf(stderr, "Could not load bmp image '%s'!\n", input);
-            errorExit(output, input, image, buf, imageChannel, 1);
+            errorExit(output, input, image, localImage, imageChannel, 1);
         }
 
         // Update info
@@ -245,17 +245,17 @@ int main(int argc, char **argv)
         offset += sendCounts[i];
     }
 
-    buf = newBmpImage(info.imageWidth, heightScale[world_rank] + ghostRows);
-    MPI_Scatterv(image->rawdata, sendCounts, displs, pixel_dt, buf->rawdata + info.imageWidth, sendCounts[world_rank], pixel_dt, 0, MPI_COMM_WORLD);
+    localImage = newBmpImage(info.imageWidth, heightScale[world_rank] + ghostRows);
+    MPI_Scatterv(image->rawdata, sendCounts, displs, pixel_dt, localImage->rawdata + info.imageWidth, sendCounts[world_rank], pixel_dt, 0, MPI_COMM_WORLD);
 
     //  *** Work start ***
 
     // Create a single color channel image. It is easier to work just with one color
-    imageChannel = newBmpImageChannel(buf->width, buf->height);
+    imageChannel = newBmpImageChannel(localImage->width, localImage->height);
     if (imageChannel == NULL)
     {
         fprintf(stderr, "Could not allocate new image channel!\n");
-        errorExit(output, input, image, buf, imageChannel, 1);
+        errorExit(output, input, image, localImage, imageChannel, 1);
     }
 
     // Extract from the loaded image an average over all colors - nothing else than
@@ -263,10 +263,10 @@ int main(int argc, char **argv)
     // extractImageChannel and mapImageChannel need the images to be in the exact
     // same dimensions!
     // Other prepared extraction functions are extractRed, extractGreen, extractBlue
-    if (extractImageChannel(imageChannel, buf, extractAverage) != 0)
+    if (extractImageChannel(imageChannel, localImage, extractAverage) != 0)
     {
         fprintf(stderr, "Could not extract image channel!\n");
-        errorExit(output, input, image, buf, imageChannel, 1);
+        errorExit(output, input, image, localImage, imageChannel, 1);
     }
 
     // Here we do the actual computation!
@@ -293,15 +293,15 @@ int main(int argc, char **argv)
     // Map our single color image back to a normal BMP image with 3 color channels
     // mapEqual puts the color value on all three channels the same way
     // other mapping functions are mapRed, mapGreen, mapBlue
-    if (mapImageChannel(buf, imageChannel, mapEqual) != 0)
+    if (mapImageChannel(localImage, imageChannel, mapEqual) != 0)
     {
         fprintf(stderr, "Could not map image channel!\n");
-        errorExit(output, input, image, buf, imageChannel, 1);
+        errorExit(output, input, image, localImage, imageChannel, 1);
     }
 
     // *** Work stop ***
 
-    MPI_Gatherv((buf->rawdata + info.imageWidth), sendCounts[world_rank], pixel_dt, image->rawdata, sendCounts, displs, pixel_dt, 0, MPI_COMM_WORLD);
+    MPI_Gatherv(localImage->rawdata + info.imageWidth, sendCounts[world_rank], pixel_dt, image->rawdata, sendCounts, displs, pixel_dt, 0, MPI_COMM_WORLD);
 
     if (world_rank == 0)
     {
@@ -309,15 +309,15 @@ int main(int argc, char **argv)
         if (saveBmpImage(image, output) != 0)
         {
             fprintf(stderr, "Could not save output to '%s'!\n", output);
-            errorExit(output, input, image, buf, imageChannel, 1);
+            errorExit(output, input, image, localImage, imageChannel, 1);
         }
     }
 
     // Free data
     if (imageChannel)
         freeBmpImageChannel(imageChannel);
-    if (buf)
-        freeBmpImage(buf);
+    if (localImage)
+        freeBmpImage(localImage);
     if (image)
         freeBmpImage(image);
     if (input)
