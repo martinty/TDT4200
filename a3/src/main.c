@@ -71,7 +71,6 @@ void applyKernel(unsigned char **out, unsigned char **in, unsigned int width, un
                 for (unsigned int kx = 0; kx < kernelDim; kx++)
                 {
                     int nkx = kernelDim - 1 - kx;
-
                     int yy = y + (ky - kernelCenter);
                     int xx = x + (kx - kernelCenter);
                     if (xx >= 0 && xx < (int)width && yy >= 0 && yy < (int)height)
@@ -161,7 +160,6 @@ int main(int argc, char **argv)
     bmpImageChannel *imageChannel = NULL;
     information info;
 
-
     if (world_rank == 0)
     {
         // Parameter parsing, don't change this!
@@ -232,7 +230,7 @@ int main(int argc, char **argv)
     int heightScale[world_size];
     int offset = 0;
     int kernelDim = 3; // Need to be the same as kernelDim in applyKernel()
-    int ghostRows = kernelDim/2;
+    int ghostRows = kernelDim / 2;
 
     heightScale[0] = info.imageHeight / world_size + info.imageHeight % world_size;
     sendCounts[0] = heightScale[0] * info.imageWidth;
@@ -247,8 +245,9 @@ int main(int argc, char **argv)
         offset += sendCounts[i];
     }
 
-    localImage = newBmpImage(info.imageWidth, heightScale[world_rank] + ghostRows*2);
-    MPI_Scatterv(image->rawdata, sendCounts, displs, pixel_dt, localImage->rawdata + info.imageWidth*ghostRows, sendCounts[world_rank], pixel_dt, 0, MPI_COMM_WORLD);
+    localImage = newBmpImage(info.imageWidth, heightScale[world_rank] + ghostRows * 2);
+    int recvOffset = info.imageWidth * ghostRows;
+    MPI_Scatterv(image->rawdata, sendCounts, displs, pixel_dt, localImage->rawdata + recvOffset, sendCounts[world_rank], pixel_dt, 0, MPI_COMM_WORLD);
 
     //  *** Work start ***
 
@@ -303,7 +302,8 @@ int main(int argc, char **argv)
 
     // *** Work stop ***
 
-    MPI_Gatherv(localImage->rawdata + info.imageWidth*ghostRows, sendCounts[world_rank], pixel_dt, image->rawdata, sendCounts, displs, pixel_dt, 0, MPI_COMM_WORLD);
+    int sendOffset = info.imageWidth * ghostRows;
+    MPI_Gatherv(localImage->rawdata + sendOffset, sendCounts[world_rank], pixel_dt, image->rawdata, sendCounts, displs, pixel_dt, 0, MPI_COMM_WORLD);
 
     if (world_rank == 0)
     {
