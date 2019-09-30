@@ -31,6 +31,7 @@ void exchangeSouthBorder(bmpImageChannel *imageChannel, int ghostRows, int rank,
         MPI_Sendrecv(imageChannel->rawdata + sendOffset, count, MPI_UNSIGNED_CHAR, rank + 1, 0,
                      imageChannel->rawdata + recvOffset, count, MPI_UNSIGNED_CHAR, rank + 1, 0,
                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
         //printf("Rank %d: Send south border to %d and recv north border from %d as new south border (ghost rows) \n", rank, rank + 1, rank + 1);
     }
 }
@@ -47,6 +48,7 @@ void exchangeNorthBorder(bmpImageChannel *imageChannel, int ghostRows, int rank)
         MPI_Sendrecv(imageChannel->rawdata + sendOffset, count, MPI_UNSIGNED_CHAR, rank - 1, 0,
                      imageChannel->rawdata + recvOffset, count, MPI_UNSIGNED_CHAR, rank - 1, 0,
                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                     
         //printf("Rank %d: Send north border to %d and recv south border from %d as new north border (ghost rows) \n", rank, rank - 1, rank - 1);
     }
 }

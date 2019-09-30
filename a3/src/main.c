@@ -79,13 +79,9 @@ void applyKernel(unsigned char **out, unsigned char **in, unsigned int width, un
             }
             aggregate *= kernelFactor;
             if (aggregate > 0)
-            {
                 out[y][x] = (aggregate > 255) ? 255 : aggregate;
-            }
             else
-            {
                 out[y][x] = 0;
-            }
         }
     }
 }
@@ -97,19 +93,14 @@ void help(char const *exec, char const opt, char const *optarg)
     {
         out = stderr;
         if (optarg)
-        {
             fprintf(out, "Invalid parameter - %c %s\n", opt, optarg);
-        }
         else
-        {
             fprintf(out, "Invalid parameter - %c\n", opt);
-        }
     }
     fprintf(out, "%s [options] <input-bmp> <output-bmp>\n", exec);
     fprintf(out, "\n");
     fprintf(out, "Options:\n");
     fprintf(out, "  -i, --iterations <iterations>    number of iterations (1)\n");
-
     fprintf(out, "\n");
     fprintf(out, "Example: %s in.bmp out.bmp -i 10000\n", exec);
 }
@@ -228,21 +219,21 @@ int main(int argc, char **argv)
     int sendCounts[world_size];
     int displs[world_size];
     int heightScale[world_size];
-    int offset = 0;
+    int displsOffset = 0;
     int kernelDim = 3; // Need to be the same as kernelDim in applyKernel()
     int ghostRows = kernelDim / 2;
 
     heightScale[0] = info.imageHeight / world_size + info.imageHeight % world_size;
     sendCounts[0] = heightScale[0] * info.imageWidth;
-    displs[0] = offset;
-    offset += sendCounts[0];
+    displs[0] = displsOffset;
+    displsOffset += sendCounts[0];
 
     for (int i = 1; i < world_size; i++)
     {
         heightScale[i] = info.imageHeight / world_size;
         sendCounts[i] = heightScale[i] * info.imageWidth;
-        displs[i] = offset;
-        offset += sendCounts[i];
+        displs[i] = displsOffset;
+        displsOffset += sendCounts[i];
     }
 
     localImage = newBmpImage(info.imageWidth, heightScale[world_rank] + ghostRows * 2);

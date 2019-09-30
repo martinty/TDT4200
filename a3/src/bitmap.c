@@ -23,9 +23,7 @@ void freeBmpImage(bmpImage *image)
 {
     freeBmpData(image);
     if (image)
-    {
         free(image);
-    }
 }
 
 int reallocateBmpBuffer(bmpImage *image, unsigned int const width, unsigned int const height)
@@ -35,9 +33,7 @@ int reallocateBmpBuffer(bmpImage *image, unsigned int const width, unsigned int 
     {
         image->rawdata = calloc(image->height * image->width, sizeof(pixel));
         if (image->rawdata == NULL)
-        {
             return 1;
-        }
         image->data = malloc(image->height * sizeof(pixel *));
         if (image->data == NULL)
         {
@@ -83,9 +79,7 @@ void freeBmpImageChannel(bmpImageChannel *image)
 {
     freeBmpChannelData(image);
     if (image)
-    {
         free(image);
-    }
 }
 
 int reallocateBmpChannelBuffer(bmpImageChannel *image, unsigned int const width, unsigned int const height)
@@ -95,9 +89,7 @@ int reallocateBmpChannelBuffer(bmpImageChannel *image, unsigned int const width,
     {
         image->rawdata = calloc(image->height * image->width, sizeof(unsigned char));
         if (image->rawdata == NULL)
-        {
             return 1;
-        }
         image->data = malloc(image->height * sizeof(unsigned char *));
         if (image->data == NULL)
         {
@@ -130,27 +122,24 @@ int loadBmpImage(bmpImage *image, char const *filename)
     int ret = 1;
     FILE *fImage = fopen(filename, "rb"); //read the file
     if (!fImage)
-    {
         goto failed_file;
-    }
 
     unsigned char header[BMP_HEADER_SIZE];
     if (fread(header, sizeof(unsigned char), BMP_HEADER_SIZE, fImage) < BMP_HEADER_SIZE)
-    {
         goto failed_read;
-    }
+
     image->width = *(int *)&header[18];
     image->height = *(int *)&header[22];
 
     reallocateBmpBuffer(image, image->width, image->height);
     if (image->rawdata == NULL)
-    {
         goto failed_read;
-    }
 
     int padding = 0;
     while ((image->width * 3 + padding) % 4 != 0)
+    {
         padding++;
+    }
 
     size_t lineSize = (image->width * 3);
     size_t paddedLineSize = lineSize + padding;
@@ -159,11 +148,10 @@ int loadBmpImage(bmpImage *image, char const *filename)
     for (unsigned int y = 0; y < image->height; y++)
     {
         if (fread(data, sizeof(unsigned char), paddedLineSize, fImage) < paddedLineSize)
-        {
             goto failed_read;
-        }
         memcpy(image->data[y], data, lineSize);
     }
+
     ret = 0;
 failed_read:
     fclose(fImage); //close the file
@@ -176,18 +164,14 @@ int saveBmpImage(bmpImage *image, char const *filename)
     int ret = 0;
     FILE *fImage = fopen(filename, "wb");
     if (!fImage)
-    {
         return 1;
-    }
 
     char padBuffer[4] = {};
     const size_t dataSize = image->width * image->height * sizeof(pixel);
     size_t lineWidth = image->width * sizeof(pixel);
     size_t padding = 0;
     if (lineWidth % 4 != 0)
-    {
         padding = 4 - (lineWidth % 4);
-    }
 
     const size_t size = dataSize + BMP_HEADER_SIZE;
 
@@ -198,9 +182,7 @@ int saveBmpImage(bmpImage *image, char const *filename)
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
     if (fwrite(header, sizeof(unsigned char), BMP_HEADER_SIZE, fImage) < BMP_HEADER_SIZE)
-    {
         ret = 1;
-    }
     else
     {
         for (unsigned int i = 0; i < image->height; i++)
