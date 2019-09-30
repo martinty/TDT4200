@@ -214,8 +214,10 @@ int main(int argc, char **argv)
         info.imageHeight = image->height;
     }
 
+    // Broadcast necessary information
     MPI_Bcast(&info, 1, info_dt, 0, MPI_COMM_WORLD);
 
+    // Initialize variabels used in MPI communication
     int sendCounts[world_size];
     int displs[world_size];
     int heightScale[world_size];
@@ -223,11 +225,13 @@ int main(int argc, char **argv)
     int kernelDim = 3; // Need to be the same as kernelDim in applyKernel()
     int ghostRows = kernelDim / 2;
 
+    // Set the variables for rank 0
     heightScale[0] = info.imageHeight / world_size + info.imageHeight % world_size;
     sendCounts[0] = heightScale[0] * info.imageWidth;
     displs[0] = displsOffset;
     displsOffset += sendCounts[0];
 
+    // Set the variables for the rank > 0
     for (int i = 1; i < world_size; i++)
     {
         heightScale[i] = info.imageHeight / world_size;
@@ -236,6 +240,7 @@ int main(int argc, char **argv)
         displsOffset += sendCounts[i];
     }
 
+    // Allocate memory for recived local image chunk and Scatter data
     localImage = newBmpImage(info.imageWidth, heightScale[world_rank] + ghostRows * 2);
     int recvOffset = info.imageWidth * ghostRows;
     MPI_Scatterv(image->rawdata, sendCounts, displs, pixel_dt, localImage->rawdata + recvOffset, sendCounts[world_rank], pixel_dt, 0, MPI_COMM_WORLD);
@@ -293,6 +298,7 @@ int main(int argc, char **argv)
 
     // *** Work stop ***
 
+    // Gather data from every process
     int sendOffset = info.imageWidth * ghostRows;
     MPI_Gatherv(localImage->rawdata + sendOffset, sendCounts[world_rank], pixel_dt, image->rawdata, sendCounts, displs, pixel_dt, 0, MPI_COMM_WORLD);
 
