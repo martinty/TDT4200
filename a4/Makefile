@@ -17,7 +17,7 @@ CC := g++
 CC := gcc
 FLAGS := -static
 CCFLAGS := -O$(OPTIMIZATION) $(FLAGS)
-LINKING := -lm
+LINKING := -lm -lrt
 
 CCFLAGS.valgrind := $(CCFLAGS) -g
 CCFLAGS.gprof := $(CCFLAGS) -g -pg -fno-omit-frame-pointer -fno-inline-functions -DNDEBUG
