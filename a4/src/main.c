@@ -95,6 +95,21 @@ void mapDwellBuffer(bmpImage *image, unsigned long long **buffer) {
 	}
 }
 
+void computeAndMapDwellBuffer(bmpImage *image, unsigned long long **buffer, double complex cmin, double complex cmax) {
+	for (unsigned int y = 0; y < res; y++) {
+		for (unsigned int x = 0; x < res; y++) {
+			buffer[y][x] = pixelDwell(cmin, cmax, y, x);
+			pixel *colour = malloc(sizeof(pixel));
+			*colour = getDwellColour(y, x, buffer[y][x]);
+			image->data[y][x].r = colour->r;
+			image->data[y][x].g = colour->g;
+			image->data[y][x].b = colour->b;
+			free(colour);
+        }
+    }
+}
+
+
 void help(char const *exec, char const opt, char const *optarg) {
 	FILE *out = stdout;
 	if (opt != 0) {
@@ -230,10 +245,13 @@ int main( int argc, char *argv[] )
 	}
 
 	//Compute the dwell buffer
-	computeDwellBuffer(dwellBuffer, cmin, cmax);
+	//computeDwellBuffer(dwellBuffer, cmin, cmax);
 
 	//Map the dwell buffer to the bmpImage with fancy colors
-	mapDwellBuffer(image, dwellBuffer);
+	//mapDwellBuffer(image, dwellBuffer);
+
+    // Compute the dwell buffer and map it to the bmpImage with fancy colors
+    computeAndMapDwellBuffer(image, dwellBuffer, cmin, cmax);
 
 	// Save the Image
 	if(saveBmpImage(image, output)) {
