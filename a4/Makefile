@@ -6,7 +6,7 @@ Y=0.5
 S=1.0
 I=512
 COLOUR=1
-ARGUMENTS := $(OUTPUT) -r $(RES) -x $(X) -y $(X) -s $(S) -c $(COLOUR) -i $(I)
+ARGUMENTS := $(OUTPUT) -r $(RES) -x $(X) -y $(Y) -s $(S) -c $(COLOUR) -i $(I)
 
 SOURCE_DIR := src
 BUILD_DIR  := mandel
