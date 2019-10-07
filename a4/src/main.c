@@ -7,6 +7,7 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <complex.h>
+#include <time.h>
 #include "libs/bitmap.h"
 #include "libs/utilities.h"
 #include "main.h"
@@ -29,6 +30,8 @@ static unsigned int colourMapSize = 0;
 
 static unsigned int res = 2048;
 static unsigned int maxDwell = 512;
+
+struct timespec timeStart, timeEnd;
 
 pixel getDwellColour(unsigned int const y, unsigned int const x, unsigned long long const dwell)
 {
@@ -197,7 +200,9 @@ int main(int argc, char *argv[])
 	}
 
 	// Compute the dwell and map it to the bmpImage with fancy colors
+	clock_gettime(CLOCK_REALTIME, &timeStart);
 	computeAndMapDwell(image, cmin, cmax);
+	clock_gettime(CLOCK_REALTIME, &timeEnd);
 
 	// Save the Image
 	if (saveBmpImage(image, output))
@@ -205,6 +210,11 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "ERROR: could not save image to %s\n", output);
 		goto error_exit;
 	}
+
+	// Print execution time for computeAndMapDwell()
+	double timeElapsed = (double)(timeEnd.tv_sec - timeStart.tv_sec) + 
+						 (double)(timeEnd.tv_nsec - timeStart.tv_nsec) / 1000000000;
+	printf("Execution time for computeAndMapDwell(): %0.3f seconds \n", timeElapsed); 
 
 	goto exit_graceful;
 error_exit:
