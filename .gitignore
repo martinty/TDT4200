@@ -10,3 +10,5 @@ a4/mandel
 a4/output
 a4_baseline/mandel
 a4_baseline/output
+a5/pthread/mandel
+a5/pthread/output
