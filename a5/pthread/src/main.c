@@ -22,6 +22,9 @@
    Those functions are NOT thread safe and must be called only one at a time.
    */
 
+// Mutex
+pthread_mutex_t mtx;
+
 typedef struct job {
 	void (*callback)(dwellType *, unsigned int const, unsigned int const, unsigned int const);
 	dwellType *dwellBuffer;
@@ -75,14 +78,31 @@ void createJob(void (*callback)(dwellType *, unsigned int const, unsigned int co
 }
 
 void *worker(void *id) {
-	(void) id;
+	//(void) id;
 	// This could be your pthread function
+	id = (int)id;
+	printf("Id: %d \n", id);
+
 	return NULL;
 }
 
 void initializeWorkers(unsigned int threadsNumber) {
-	(void) threadsNumber;
+	//(void) threadsNumber;
 	// This could be you initializer function to do all the pthread related stuff.
+
+	int ids[8] = {1 ,2 ,3 ,4, 5, 6, 7, 8};
+
+	pthread_t threadHandler[threadsNumber];
+    pthread_mutex_init(&mtx, NULL);
+    
+    for (unsigned int i = 0; i < threadsNumber; i++){
+        pthread_create(&threadHandler[i], NULL, worker, 1);
+    }
+    for (unsigned int i = 0; i < threadsNumber; i++) {
+        pthread_join(threadHandler[i], NULL);
+    }
+    
+	pthread_mutex_destroy(&mtx);
 }
 
 
@@ -174,6 +194,7 @@ int main( int argc, char *argv[] )
 	maxDwell = 512;
 	blockDim = 16;
 	subdivisions = 4;
+	markBorders = false;
 
 
 	/* Dwell Buffer */
@@ -321,6 +342,8 @@ int main( int argc, char *argv[] )
 		fprintf(stderr, "ERROR: could not save image to %s\n", output);
 		goto error_exit;
 	}
+
+	initializeWorkers(4);
 
 	goto exit_graceful;
 error_exit:
