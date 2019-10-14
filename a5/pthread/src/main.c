@@ -20,10 +20,13 @@
    Each element points to the next or NULL if last element
    functions putJob and popJob are inserting and taking a job to/from the jobQueue.
    Those functions are NOT thread safe and must be called only one at a time.
-   */
+*/
 
-// Mutex
+// pthread mutex
 pthread_mutex_t mtx;
+
+// Print info in threads
+bool const pthreadPrint = false;
 
 typedef struct job {
 	void (*callback)(dwellType *, unsigned int const, unsigned int const, unsigned int const);
@@ -74,43 +77,58 @@ void createJob(void (*callback)(dwellType *, unsigned int const, unsigned int co
 			   unsigned int const blockSize)
 {
 	job newJob = { .callback = callback, .dwellBuffer = buffer, .atY = atY, .atX = atX, .blockSize = blockSize };
+	pthread_mutex_lock(&mtx);
 	putJob(&jobQueueHead, newJob);
+	pthread_mutex_unlock(&mtx);
 }
 
-void *worker(void *id) {
-	//(void) id;
-	// This could be your pthread function
-	id = (int)id;
-	printf("Id: %d \n", id);
+void *worker(void *arg) {
+	unsigned int id = *((unsigned int *) arg);
+	if(pthreadPrint)
+		printf("Thread: %d \t Start \n", id);
+	
+	bool working = true;
+	job work;
+	int jobCount = 0;
 
+	while(working){
+		pthread_mutex_lock(&mtx);
+		if(jobQueueHead){
+			work = popJob(&jobQueueHead);
+			pthread_mutex_unlock(&mtx);
+			work.callback(work.dwellBuffer, work.atY, work.atX, work.blockSize);
+			jobCount++;
+		}
+		else{
+			pthread_mutex_unlock(&mtx);
+			if(jobCount > 0)
+				working = false;
+		}
+	}
+
+	if(pthreadPrint)
+		printf("Thread: %d \t Exit \t Jobs: %d \n", id, jobCount);
+	free(arg);
 	return NULL;
 }
 
 void initializeWorkers(unsigned int threadsNumber) {
-	//(void) threadsNumber;
-	// This could be you initializer function to do all the pthread related stuff.
-
-	int ids[8] = {1 ,2 ,3 ,4, 5, 6, 7, 8};
-
 	pthread_t threadHandler[threadsNumber];
-    pthread_mutex_init(&mtx, NULL);
-    
     for (unsigned int i = 0; i < threadsNumber; i++){
-        pthread_create(&threadHandler[i], NULL, worker, 1);
+		unsigned int *arg = malloc(sizeof(*arg));
+		*arg = i; 
+        pthread_create(&threadHandler[i], NULL, worker, (void *) arg);
     }
     for (unsigned int i = 0; i < threadsNumber; i++) {
         pthread_join(threadHandler[i], NULL);
     }
-    
-	pthread_mutex_destroy(&mtx);
 }
-
 
 /*
    Now the 2 two functions are following which do the computation
    marianiSilver is a subdivsion function computing the Mandelbrot set
    escapeTime is the traditional algorithm which you already know
-   */
+*/
 
 bool markBorders;
 unsigned int blockDim;
@@ -135,12 +153,12 @@ void marianiSilver( dwellType *buffer,
 		unsigned int newBlockSize = blockSize / subdivisions;
 		for (unsigned int ydiv = 0; ydiv < subdivisions; ydiv++) {
 			for (unsigned int xdiv = 0; xdiv < subdivisions; xdiv++) {
-				marianiSilver(buffer, atY + (ydiv * newBlockSize), atX + (xdiv * newBlockSize), newBlockSize);
+				//marianiSilver(buffer, atY + (ydiv * newBlockSize), atX + (xdiv * newBlockSize), newBlockSize);
+				createJob(marianiSilver, buffer, atY + (ydiv * newBlockSize), atX + (xdiv * newBlockSize), newBlockSize);
 			}
 		}
 	}
 }
-
 
 void escapeTime( dwellType *buffer,
 				 unsigned int const atY,
@@ -196,9 +214,11 @@ int main( int argc, char *argv[] )
 	subdivisions = 4;
 	markBorders = false;
 
-
 	/* Dwell Buffer */
 	dwellType *dwellBuffer = NULL;
+
+	// pthread mutex
+	pthread_mutex_init(&mtx, NULL);
 
 	/* Parameter parsing... */
 	{
@@ -316,19 +336,23 @@ int main( int argc, char *argv[] )
 		// Calculate a dividable resolution for the blockSize:
 		unsigned int const correctedBlockSize = pow(subdivisions,numDiv) * blockDim;
 		// Mariani-Silver subdivision algorithm
-		marianiSilver(dwellBuffer, 0, 0, correctedBlockSize);
+		//marianiSilver(dwellBuffer, 0, 0, correctedBlockSize);
+		createJob(marianiSilver, dwellBuffer, 0, 0, correctedBlockSize);
 	} else {
 		// Traditional Mandelbrot-Set computation or the 'Escape Time' algorithm
 		// computeBlock respects the resolution of the image, so we scale the blocks up to
 		// a divideable dimension
 		unsigned int block = ceil((double) resolution / useThreads);
-
 		for (unsigned int t = 0; t < useThreads; t++) {
 			for (unsigned int x = 0; x < useThreads; x++) {
-				escapeTime(dwellBuffer, t * block, x * block, block);
+				//escapeTime(dwellBuffer, t * block, x * block, block);
+				createJob(escapeTime, dwellBuffer, t * block, x * block, block);
 			}
 		}
 	}
+
+	// pthread
+	initializeWorkers(useThreads);
 
 	// Map dwell buffer to image
 	for (unsigned int y = 0; y < resolution; y++) {
@@ -343,12 +367,11 @@ int main( int argc, char *argv[] )
 		goto error_exit;
 	}
 
-	initializeWorkers(4);
-
 	goto exit_graceful;
 error_exit:
 	ret = 1;
 exit_graceful:
+	pthread_mutex_destroy(&mtx);
 	if(image)
 		freeBmpImage(image);
 	if(dwellBuffer)
