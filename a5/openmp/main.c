@@ -14,6 +14,9 @@
 static double start;
 static double end;
 
+// Print number of threads
+static bool const printNumThreads = true;
+
 //Serial version. Do not change this!
 void serial_mxm(const double *A, const double *B, double *C, int m, int n, int k)
 {
@@ -29,12 +32,20 @@ void serial_mxm(const double *A, const double *B, double *C, int m, int n, int k
 
 void omp_mxm(double *A, double *B, double *C, int m, int n, int k)
 {
-  printf("OpenMP version not implemented yet!\n");
+  #pragma omp parallel for collapse(2)
+  for (int i = 0; i < m; i++) {
+    for (int j = 0; j < n; j++) {
+      C[i*n + j] = 0;
+      for (int l = 0; l < k; l++) {
+        C[i*n + j] += A[i*k + l] * B[l*n + j];
+      }
+    }
+  }
 }
 
 void blas_mxm(double *A, double *B, double *C, int m, int n, int k)
 {
-  printf("BLAS version not implemented yet!\n");
+  cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, n, k, 1, A, k, B, n, 1, C, n);
 }
 
 int main(const unsigned int argc, char **argv)
@@ -71,16 +82,22 @@ int main(const unsigned int argc, char **argv)
   for (int i = 0; i < (m*n); i++) {
     C[i] = 0.0;
   }
-
+  
   switch (input) {
     case 's':
+      start = omp_get_wtime();
       serial_mxm(A, B, C, m, n, k);
+      end = omp_get_wtime();
       break;
     case 'o':
+      start = omp_get_wtime();
       omp_mxm(A, B, C, m, n, k);
+      end = omp_get_wtime();
       break;
     case 'b':
+      start = omp_get_wtime();
       blas_mxm(A, B, C, m, n, k);
+      end = omp_get_wtime();
       break;
     default:
       printf("Please provide version:\n");
@@ -121,12 +138,14 @@ int main(const unsigned int argc, char **argv)
     for (int i = 0; i < (m*n); i++) {
       if (abs(C[i] - C2[i]) > ERROR_THRESHOLD) {
         correct = false;
+        break;
       }
     }
     if (correct) {
-      printf("\nMatrix multiplication succeeded\n");
-    } else {
-      printf("\nMatrix multiplication failed\n");
+      printf("\nMatrix multiplication succeeded!\n");
+    } 
+    else {
+      printf("\nMatrix multiplication failed!\n");
       printf("Top left of correct C:\n");
       for (int i = 0; i < 5; i++) {
         for (int j = 0; j < 5; j++) {
@@ -138,6 +157,14 @@ int main(const unsigned int argc, char **argv)
   }
 
   printf("\nVersion: %c, time: %.4f\n", input, end-start);
+
+  if(printNumThreads){
+    #pragma omp parallel
+    {
+      if (0 == omp_get_thread_num() && input == 'o')
+        printf("Number of threads: %d\n", omp_get_num_threads());
+    }
+  }
 
   return 0;
 }
