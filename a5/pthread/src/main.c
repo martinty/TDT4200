@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <complex.h>
 #include <pthread.h>
+#include <time.h>
 #include "libs/bitmap.h"
 #include "libs/utilities.h"
 #include "mandelCompute.h"
@@ -27,6 +28,9 @@ pthread_mutex_t mtx;
 
 // Print info in threads
 bool const pthreadPrint = false;
+
+// Timer for algorithm
+struct timespec timeStart, timeEnd;
 
 typedef struct job {
 	void (*callback)(dwellType *, unsigned int const, unsigned int const, unsigned int const);
@@ -352,7 +356,9 @@ int main( int argc, char *argv[] )
 	}
 
 	// pthread
+	clock_gettime(CLOCK_REALTIME, &timeStart);
 	initializeWorkers(useThreads);
+	clock_gettime(CLOCK_REALTIME, &timeEnd);
 
 	// Map dwell buffer to image
 	for (unsigned int y = 0; y < resolution; y++) {
@@ -366,6 +372,11 @@ int main( int argc, char *argv[] )
 		fprintf(stderr, "ERROR: could not save image to %s\n", output);
 		goto error_exit;
 	}
+
+	// Print execution time for algorithm
+	double timeElapsed = (double)(timeEnd.tv_sec - timeStart.tv_sec) + 
+						 (double)(timeEnd.tv_nsec - timeStart.tv_nsec) / 1000000000;
+	printf("Execution time for algorithm: %0.4f seconds \n", timeElapsed); 
 
 	goto exit_graceful;
 error_exit:
