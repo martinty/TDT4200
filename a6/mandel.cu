@@ -30,7 +30,22 @@ typedef struct {
 
 /********** SUBTASK1: Create kernel device_calculate *************************/
 
-//Insert code here
+__global__ void device_calculate(int *imageBlock, double xleft, double yupper, double step){
+	int i = blockIdx.x * BLOCKX + threadIdx.x;
+	int j = blockIdx.y * BLOCKY + threadIdx.y;
+	my_complex_t c,z,temp;
+	int iter=0;
+	c.real = (xleft + step*i);
+	c.imag = (yupper - step*j);
+	z = c;
+	while(z.real*z.real + z.imag*z.imag < 4.0) {
+		temp.real = z.real*z.real - z.imag*z.imag + c.real;
+		temp.imag = 2.0*z.real*z.imag + c.imag;
+		z = temp;
+		if(++iter==MAXITER) break;
+	}
+	imageBlock[PIXEL(i,j)]=iter;
+}
 
 /********** SUBTASK1 END *****************************************************/
 
@@ -121,14 +136,17 @@ int main(int argc,char **argv) {
 
 	/********** SUBTASK2: Set up device memory *******************************/
 
-	// Insert code here
+	int *imageBlock;
+	cudaMalloc((void**)&imageBlock, XSIZE*YSIZE * sizeof(int));
 
 	/********** SUBTASK2 END *************************************************/
 
 	start=walltime();
 	/********** SUBTASK3: Execute the kernel on the device *******************/
 
-	//Insert code here
+	dim3 gridBlock(XSIZE/BLOCKX, YSIZE/BLOCKY);
+	dim3 threadBlock(BLOCKX, BLOCKY);
+	device_calculate<<<gridBlock, threadBlock>>>(imageBlock, xleft, yupper, step);
 
 	/********** SUBTASK3 END *************************************************/
 	
@@ -138,7 +156,7 @@ int main(int argc,char **argv) {
 	
 	/********** SUBTASK4: Transfer the result from device to device_pixel[][]*/
 
-	//Insert code here
+	cudaMemcpy(device_pixel, imageBlock, XSIZE*YSIZE * sizeof(int), cudaMemcpyDeviceToHost);
 
 	/********** SUBTASK4 END *************************************************/
 	
@@ -146,7 +164,7 @@ int main(int argc,char **argv) {
 
 	/********** SUBTASK5: Free the device memory also ************************/
 
-	//Insert code here
+	cudaFree(imageBlock);
 
 	/********** SUBTASK5 END *************************************************/
 
