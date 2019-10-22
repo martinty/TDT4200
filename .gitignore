@@ -13,3 +13,5 @@ a4_baseline/output
 a5/pthread/mandel
 a5/pthread/output
 a5/openmp/main
+a6/mandel
+a6/*.bmp
