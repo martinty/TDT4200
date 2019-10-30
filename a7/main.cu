@@ -3,6 +3,7 @@
 #include <string.h>
 #include <getopt.h>
 #include <stdlib.h>
+#include <sys/time.h>
 extern "C" {
     #include "libs/bitmap.h"
 }
@@ -110,6 +111,12 @@ void help(char const *exec, char const opt, char const *optarg) {
     fprintf(out, "Example: %s in.bmp out.bmp -i 10000\n", exec);
 }
 
+double walltime ( void ) {
+	static struct timeval t;
+	gettimeofday ( &t, NULL );
+	return ( t.tv_sec + 1e-6 * t.tv_usec );
+}
+
 int main(int argc, char **argv) {
   /*
     Parameter parsing, don't change this!
@@ -118,6 +125,11 @@ int main(int argc, char **argv) {
   char *output = NULL;
   char *input = NULL;
   int ret = 0;
+
+  // Walltime variables
+  double startTime;
+  double serialTime = 0;
+  double cudaTime = 0;
 
   static struct option const long_options[] =  {
       {"help",       no_argument,       0, 'h'},
@@ -199,6 +211,8 @@ int main(int argc, char **argv) {
     return ERROR_EXIT;
   }
 
+//********************************* Serial work start ***************************
+  startTime = walltime();
 
   //Here we do the actual computation!
   // imageChannel->data is a 2-dimensional array of unsigned char which is accessed row first ([y][x])
@@ -223,6 +237,17 @@ int main(int argc, char **argv) {
   }
   freeBmpImageChannel(processImageChannel);
 
+  serialTime = walltime() - startTime;
+//********************************* Serial work stop ****************************
+
+//********************************* CUDA work start *****************************
+  startTime = walltime();
+
+// Insert CUDA code!
+
+  cudaTime = walltime() - startTime;
+//********************************* CUDA work stop ******************************
+
   // Map our single color image back to a normal BMP image with 3 color channels
   // mapEqual puts the color value on all three channels the same way
   // other mapping functions are mapRed, mapGreen, mapBlue
@@ -240,6 +265,10 @@ int main(int argc, char **argv) {
     freeBmpImage(image);
     return ERROR_EXIT;
   };
+
+  printf("\n");
+  printf("Serial time:      %7.3f s     or      %7.3f ms\n", serialTime, serialTime * 1e3);
+  printf("CUDA time:        %7.3f s     or      %7.3f ms\n", cudaTime, cudaTime * 1e3);
 
   ret = 0;
   if (input)
