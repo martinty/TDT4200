@@ -1,11 +1,17 @@
+PATH+=:/usr/local/cuda/bin
+I=1
 
-.PHONY: clean
+.PHONY: clean run
 
-main: libs/bitmap.c libs/bitmap.c main.cu
-	nvcc libs/bitmap.c main.cu
+all: main
+
+main:
+	nvcc -o main.out libs/bitmap.c main.cu -O3 -lm
+
+run: main
+	./main.out before.bmp after.bmp -i $(I)
 
 clean:
-	rm -Rf *.o
-	rm -Rf main
-
-# end
+	rm -rf *.o
+	rm -rf *.out
+	rm -rf after.bmp
