@@ -13,6 +13,17 @@
 
 #define MAXITER 255
 
+#define cudaErrorCheck(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort = true)
+{
+    if (code != cudaSuccess)
+    {
+        fprintf(stderr, "GPUassert: %s %s %s %d\n", cudaGetErrorName(code), cudaGetErrorString(code), file, line);
+        if (abort)
+            exit(code);
+    }
+}
+
 double xleft=-2.01;
 double xright=1;
 double yupper,ylower;
@@ -137,7 +148,7 @@ int main(int argc,char **argv) {
 	/********** SUBTASK2: Set up device memory *******************************/
 
 	int *imageBlock;
-	cudaMalloc((void**)&imageBlock, XSIZE*YSIZE * sizeof(int));
+	cudaErrorCheck(cudaMalloc((void**)&imageBlock, XSIZE*YSIZE * sizeof(int)));
 
 	/********** SUBTASK2 END *************************************************/
 
@@ -147,6 +158,7 @@ int main(int argc,char **argv) {
 	dim3 gridBlock(XSIZE/BLOCKX, YSIZE/BLOCKY);
 	dim3 threadBlock(BLOCKX, BLOCKY);
 	device_calculate<<<gridBlock, threadBlock>>>(imageBlock, xleft, yupper, step);
+	cudaErrorCheck(cudaGetLastError());
 
 	/********** SUBTASK3 END *************************************************/
 	
@@ -156,7 +168,7 @@ int main(int argc,char **argv) {
 	
 	/********** SUBTASK4: Transfer the result from device to device_pixel[][]*/
 
-	cudaMemcpy(device_pixel, imageBlock, XSIZE*YSIZE * sizeof(int), cudaMemcpyDeviceToHost);
+	cudaErrorCheck(cudaMemcpy(device_pixel, imageBlock, XSIZE*YSIZE * sizeof(int), cudaMemcpyDeviceToHost));
 
 	/********** SUBTASK4 END *************************************************/
 	
@@ -164,7 +176,7 @@ int main(int argc,char **argv) {
 
 	/********** SUBTASK5: Free the device memory also ************************/
 
-	cudaFree(imageBlock);
+	cudaErrorCheck(cudaFree(imageBlock));
 
 	/********** SUBTASK5 END *************************************************/
 
