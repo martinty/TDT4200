@@ -52,14 +52,12 @@ int const laplacian3Filter[] = {-1, -1, -1,
                                 -1, -1, -1};
 float const laplacian3FilterFactor = (float)1.0;
 
-//Bonus Filter:
-
+// Bonus Filter:
 int const gaussianFilter[] = {1, 4, 6, 4, 1,
                               4, 16, 24, 16, 4,
                               6, 24, 36, 24, 6,
                               4, 16, 24, 16, 4,
                               1, 4, 6, 4, 1};
-
 float const gaussianFilterFactor = (float)1.0 / 256.0;
 
 // Apply convolutional filter on image data
@@ -121,9 +119,7 @@ double walltime(void)
 
 int main(int argc, char **argv)
 {
-    /*
-    Parameter parsing, don't change this!
-   */
+    // Parameter parsing, don't change this!
     unsigned int iterations = 1;
     char *output = NULL;
     char *input = NULL;
@@ -177,13 +173,9 @@ int main(int argc, char **argv)
     strncpy(output, argv[optind], strlen(argv[optind]));
     optind++;
 
-    /*
-    End of Parameter parsing!
-   */
+    // End of Parameter parsing!
 
-    /*
-    Create the BMP image and load it from disk.
-   */
+    // Create the BMP image and load it from disk.
     bmpImage *image = newBmpImage(0, 0);
     if (image == NULL)
         fprintf(stderr, "Could not allocate new image!\n");
