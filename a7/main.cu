@@ -67,7 +67,7 @@ int const gaussianFilter[] = {1, 4, 6, 4, 1,
 float const gaussianFilterFactor = (float)1.0 / 256.0;
 */
 
-// CPU - Apply convolutional filter on image data
+// CPU serial - Apply convolutional filter on image data
 void applyFilter(unsigned char **out, unsigned char **in, unsigned int width, unsigned int height, int *filter, unsigned int filterDim, float filterFactor)
 {
     unsigned int const filterCenter = (filterDim / 2);
@@ -98,34 +98,69 @@ void applyFilter(unsigned char **out, unsigned char **in, unsigned int width, un
     }
 }
 
-// GPU - Apply convolutional filter on image data
+// GPU basic - Apply convolutional filter on image data
 __global__ void device_applyFilter(unsigned char *out, unsigned char *in, unsigned int width, unsigned int height, int *filter, unsigned int filterDim, float filterFactor)
 {
-    unsigned int const filterCenter = (filterDim / 2);
     unsigned int x = blockIdx.x * BLOCKX + threadIdx.x;
-	unsigned int y = blockIdx.y * BLOCKY + threadIdx.y;
-    int aggregate = 0;
-    for (unsigned int ky = 0; ky < filterDim; ky++)
-    {
-        int nky = filterDim - 1 - ky;
-        for (unsigned int kx = 0; kx < filterDim; kx++)
-        {
-            int nkx = filterDim - 1 - kx;
-
-            int yy = y + (ky - filterCenter);
-            int xx = x + (kx - filterCenter);
-            if (xx >= 0 && xx < (int)width && yy >= 0 && yy < (int)height)
-                aggregate += in[xx + yy*width] * filter[nky * filterDim + nkx];
-        }
-    }
-    aggregate *= filterFactor;
+    unsigned int y = blockIdx.y * BLOCKY + threadIdx.y;
     if (x < width && y < height)
     {
+        unsigned int const filterCenter = (filterDim / 2);
+        int aggregate = 0;
+        for (unsigned int ky = 0; ky < filterDim; ky++)
+        {
+            int nky = filterDim - 1 - ky;
+            for (unsigned int kx = 0; kx < filterDim; kx++)
+            {
+                int nkx = filterDim - 1 - kx;
+
+                int yy = y + (ky - filterCenter);
+                int xx = x + (kx - filterCenter);
+                if (xx >= 0 && xx < (int)width && yy >= 0 && yy < (int)height)
+                    aggregate += in[xx + yy*width] * filter[nky * filterDim + nkx];
+            }
+        }
+        aggregate *= filterFactor;
         if (aggregate > 0)
             out[x + y*width] = (aggregate > 255) ? 255 : aggregate;
         else
             out[x + y*width] = 0;
     }
+}
+
+// GPU shared memory - Apply convolutional filter on image data
+__global__ void device_applyFilter_sm(unsigned char *out, unsigned char *in, unsigned int width, unsigned int height, int *filter, unsigned int filterDim, float filterFactor)
+{
+    //__shared__ unsigned char data[9];
+    unsigned int x = blockIdx.x * BLOCKX + threadIdx.x;
+    unsigned int y = blockIdx.y * BLOCKY + threadIdx.y;
+    if (x < width && y < height)
+    {
+        //data[x + y*width] = in[x + y*width];
+        __syncthreads();
+        unsigned int const filterCenter = (filterDim / 2);
+        int aggregate = 0;
+        for (unsigned int ky = 0; ky < filterDim; ky++)
+        {
+            int nky = filterDim - 1 - ky;
+            for (unsigned int kx = 0; kx < filterDim; kx++)
+            {
+                int nkx = filterDim - 1 - kx;
+
+                int yy = y + (ky - filterCenter);
+                int xx = x + (kx - filterCenter);
+                if (xx >= 0 && xx < (int)width && yy >= 0 && yy < (int)height)
+                    aggregate += in[xx + yy*width] * filter[nky * filterDim + nkx];
+            }
+        }
+        aggregate *= filterFactor;
+        if (aggregate > 0)
+            out[x + y*width] = (aggregate > 255) ? 255 : aggregate;
+        else
+            out[x + y*width] = 0;
+    }
+    else
+        __syncthreads();
 }
 
 void help(char const *exec, char const opt, char const *optarg)
@@ -165,7 +200,7 @@ bool isImageChannelEqual(unsigned char *a, unsigned char *b, unsigned int size)
     return true;
 }
 
-void freeMemory(char *output, char *input, bmpImage *image, bmpImageChannel *imageChannel1, bmpImageChannel *imageChannel2)
+void freeMemory(char *output, char *input, bmpImage *image, bmpImageChannel *imageChannel1, bmpImageChannel *imageChannel2, bmpImageChannel *imageChannel3)
 {
     if (output)
         free(output);
@@ -177,6 +212,8 @@ void freeMemory(char *output, char *input, bmpImage *image, bmpImageChannel *ima
         freeBmpImageChannel(imageChannel1);
     if (imageChannel2)
         freeBmpImageChannel(imageChannel2);
+    if (imageChannel3)
+        freeBmpImageChannel(imageChannel3);
 }
 
 int main(int argc, char **argv)
@@ -185,6 +222,7 @@ int main(int argc, char **argv)
     double startTime;
     double serialTime = 0;
     double cudaTime = 0;
+    double cudaTime_sm = 0;
 
     // Compare GPU and CPU code
     bool test = false;
@@ -196,6 +234,7 @@ int main(int argc, char **argv)
     bmpImage *image = NULL;
     bmpImageChannel *imageChannel1 = NULL;
     bmpImageChannel *imageChannel2 = NULL;
+    bmpImageChannel *imageChannel3 = NULL;
 
     static struct option const long_options[] = {
         {"help", no_argument, 0, 'h'},
@@ -252,13 +291,13 @@ int main(int argc, char **argv)
     if (image == NULL)
     {
         fprintf(stderr, "Could not allocate new image!\n");
-        freeMemory(output, input, image, imageChannel1, imageChannel2);
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
         return ERROR_EXIT;
     }
     if (loadBmpImage(image, input) != 0)
     {
         fprintf(stderr, "Could not load bmp image '%s'!\n", input);
-        freeMemory(output, input, image, imageChannel1, imageChannel2);
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
         return ERROR_EXIT;
     }
 
@@ -268,40 +307,55 @@ int main(int argc, char **argv)
 
     if (test)
     {
-        // Create a single color channel image for CPU code
+        // Create a single color channel image for CPU serial code
         imageChannel1 = newBmpImageChannel(sizeX, sizeY);
         if (imageChannel1 == NULL)
         {
             fprintf(stderr, "Could not allocate new image channel 1!\n");
-            freeMemory(output, input, image, imageChannel1, imageChannel2);
+            freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
             return ERROR_EXIT;
         }
         if (extractImageChannel(imageChannel1, image, extractAverage) != 0)
         {
             fprintf(stderr, "Could not extract image channel 1!\n");
-            freeMemory(output, input, image, imageChannel1, imageChannel2);
+            freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
             return ERROR_EXIT;
         }
     }
 
-    // Create a single color channel image for GPU code
+    // Create a single color channel image for GPU basic code
     imageChannel2 = newBmpImageChannel(sizeX, sizeY);
     if (imageChannel2 == NULL)
     {
         fprintf(stderr, "Could not allocate new image channel 2!\n");
-        freeMemory(output, input, image, imageChannel1, imageChannel2);
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
         return ERROR_EXIT;
     }
     if (extractImageChannel(imageChannel2, image, extractAverage) != 0)
     {
         fprintf(stderr, "Could not extract image channel 2!\n");
-        freeMemory(output, input, image, imageChannel1, imageChannel2);
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
+        return ERROR_EXIT;
+    }
+
+    // Create a single color channel image for GPU shared memory code
+    imageChannel3 = newBmpImageChannel(sizeX, sizeY);
+    if (imageChannel3 == NULL)
+    {
+        fprintf(stderr, "Could not allocate new image channel 2!\n");
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
+        return ERROR_EXIT;
+    }
+    if (extractImageChannel(imageChannel3, image, extractAverage) != 0)
+    {
+        fprintf(stderr, "Could not extract image channel 2!\n");
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
         return ERROR_EXIT;
     }
 
     if (test)
     {
-        //********************************* CPU work start ***************************
+        //********************************* CPU serial work start *********************************
         startTime = walltime();
 
         // Here we do the actual computation!
@@ -330,10 +384,10 @@ int main(int argc, char **argv)
         freeBmpImageChannel(processImageChannel);
 
         serialTime = walltime() - startTime;
-        //********************************* CPU work stop ****************************
+        //********************************* CPU serial work stop *********************************
     }
 
-    //********************************* GPU work start ******************************
+    //********************************* GPU basic work start *********************************
     startTime = walltime();
 
     // Variables
@@ -378,15 +432,63 @@ int main(int argc, char **argv)
     cudaErrorCheck(cudaFree(filterGPU));
 
     cudaTime = walltime() - startTime;
-    //********************************* GPU work stop *******************************
+    //********************************* GPU basic work stop *********************************
+
+    //********************************* GPU shared memory work start *********************************
+    startTime = walltime();
+
+    // Variables
+    dim3 gridBlock_sm(sizeX/BLOCKX, sizeY/BLOCKY);
+    dim3 threadBlock_sm(BLOCKX, BLOCKY);
+    unsigned char *imageChannelGPU_sm = NULL;
+    unsigned char *processImageChannelGPU_sm = NULL;
+    int *filterGPU_sm = NULL;
+    unsigned int filterDim_sm = 3;
+    float filterFactor_sm = laplacian1FilterFactor;
+    const int *filter_sm = laplacian1Filter;
+
+    // Set up device memory
+    cudaErrorCheck(cudaMalloc((void**)&imageChannelGPU_sm, sizeX*sizeY * sizeof(unsigned char)));
+    cudaErrorCheck(cudaMalloc((void**)&processImageChannelGPU_sm, sizeX*sizeY * sizeof(unsigned char)));
+    cudaErrorCheck(cudaMalloc((void**)&filterGPU_sm, filterDim_sm*filterDim_sm * sizeof(int)));
+
+    // Copy data from host to device
+    cudaErrorCheck(cudaMemcpy(imageChannelGPU_sm, imageChannel3->rawdata, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyHostToDevice));
+    cudaErrorCheck(cudaMemcpy(filterGPU_sm, filter_sm, filterDim_sm*filterDim_sm * sizeof(int), cudaMemcpyHostToDevice));
+
+    // GPU computation
+    for (unsigned int i = 0; i < iterations; i++)
+    {
+        device_applyFilter_sm<<<gridBlock_sm, threadBlock_sm>>>(
+            processImageChannelGPU_sm, 
+            imageChannelGPU_sm,
+            sizeX,
+            sizeY, 
+            filterGPU_sm, filterDim_sm, filterFactor_sm
+        );
+        cudaErrorCheck(cudaGetLastError());
+        cudaErrorCheck(cudaMemcpy(imageChannelGPU_sm, processImageChannelGPU_sm, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyDeviceToDevice));
+    }
+
+    // Copy data from device to host
+    cudaErrorCheck(cudaMemcpy(imageChannel3->rawdata, imageChannelGPU_sm, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyDeviceToHost));
+
+    // Free the device memory
+    cudaErrorCheck(cudaFree(imageChannelGPU_sm));
+    cudaErrorCheck(cudaFree(processImageChannelGPU_sm));
+    cudaErrorCheck(cudaFree(filterGPU_sm));
+    
+    cudaTime_sm = walltime() - startTime;
+    //********************************* GPU shared memory work stop *********************************
 
     if (test)
     {
         // Check if GPU image channel is equal to CPU image channel
-        if (!isImageChannelEqual(imageChannel2->rawdata, imageChannel1->rawdata, sizeX*sizeY))
+        if (!isImageChannelEqual(imageChannel2->rawdata, imageChannel1->rawdata, sizeX*sizeY) ||
+            !isImageChannelEqual(imageChannel3->rawdata, imageChannel1->rawdata, sizeX*sizeY))
         {
             fprintf(stderr, "GPU image channel is not equal to serial image channel!\n");
-            freeMemory(output, input, image, imageChannel1, imageChannel2);
+            freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
             return ERROR_EXIT;
         }
     }
@@ -397,7 +499,7 @@ int main(int argc, char **argv)
     if (mapImageChannel(image, imageChannel2, mapEqual) != 0)
     {
         fprintf(stderr, "Could not map image channel!\n");
-        freeMemory(output, input, image, imageChannel1, imageChannel2);
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
         return ERROR_EXIT;
     }
 
@@ -405,14 +507,39 @@ int main(int argc, char **argv)
     if (saveBmpImage(image, output) != 0)
     {
         fprintf(stderr, "Could not save output to '%s'!\n", output);
-        freeMemory(output, input, image, imageChannel1, imageChannel2);
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
         return ERROR_EXIT;
     };
 
-    printf("\nGPU time:    %7.3f s    or    %7.3f ms\n", cudaTime, cudaTime * 1e3);
+    printf("\nGPU time:\t%7.3f s  or  %7.3f ms\tBasic\n", cudaTime, cudaTime * 1e3);
+    printf("GPU time:\t%7.3f s  or  %7.3f ms\tShared memory\n", cudaTime_sm, cudaTime_sm * 1e3);
     if (test)
-        printf("CPU time:    %7.3f s    or    %7.3f ms\n", serialTime, serialTime * 1e3);
+        printf("CPU time:\t%7.3f s  or  %7.3f ms\tSerial\n", serialTime, serialTime * 1e3);
 
-    freeMemory(output, input, image, imageChannel1, imageChannel2);
+    freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
     return 0;
 };
+
+/*
+ // Kernel Function: Runs per device thread
+ __global__ void vectorMultUsingSharedMemory(float *dev_a, float, *dev_b, float *dev_c, int width)
+{
+    const int TILE_WIDTH = 16;
+    // Allocate shared memory
+    __shared__ float dev_as[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float dev_bs[TILE_WIDTH][TILE_WIDTH];
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    float dotProduct = 0.0f;
+    for (int i = 0; i < width/TILE_WIDTH; i++)
+    {
+        dev_as[threadIdx.y][threadIdx.x] = dev_a[row * width + (i * TILE_WIDTH + threadIdx.x)];
+        dev_bs[threadIdx.y][threadIdx.x] = dev_b[(i * TILE_WIDTH + threadIdx.y) * width + col];
+        __syncthreads(); 
+        for (int j = 0; j < TILE_WIDTH; j++) 
+            dotProduct += dev_as[threadIdx.y][j] * dev_bs[j][threadIdx.x];
+        __syncthreads();
+    }
+    dev_c[row * width + col] = dotProduct;
+} 
+*/
