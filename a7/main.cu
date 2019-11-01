@@ -113,7 +113,6 @@ __global__ void device_applyFilter(unsigned char *out, unsigned char *in, unsign
             for (unsigned int kx = 0; kx < filterDim; kx++)
             {
                 int nkx = filterDim - 1 - kx;
-
                 int yy = y + (ky - filterCenter);
                 int xx = x + (kx - filterCenter);
                 if (xx >= 0 && xx < (int)width && yy >= 0 && yy < (int)height)
@@ -131,26 +130,45 @@ __global__ void device_applyFilter(unsigned char *out, unsigned char *in, unsign
 // GPU shared memory - Apply convolutional filter on image data
 __global__ void device_applyFilter_sm(unsigned char *out, unsigned char *in, unsigned int width, unsigned int height, int *filter, unsigned int filterDim, float filterFactor)
 {
-    //__shared__ unsigned char data[9];
+    extern __shared__ unsigned char data[];
     unsigned int x = blockIdx.x * BLOCKX + threadIdx.x;
     unsigned int y = blockIdx.y * BLOCKY + threadIdx.y;
+    unsigned int const filterCenter = (filterDim / 2);
     if (x < width && y < height)
     {
-        //data[x + y*width] = in[x + y*width];
+        if (threadIdx.x == 0 && threadIdx.y == 0)
+        {
+            unsigned int i = 0;
+            for (int row = -(int)filterCenter; row < BLOCKY + (int)filterCenter; row++)
+            {
+                for (int col = -(int)filterCenter; col < BLOCKX + (int)filterCenter; col++)
+                {
+                    if ((int)x+col >= 0 && (int)x+col < (int)width && (int)y+row >= 0 && (int)y+row < (int)height)
+                    {
+                        data[i] = in[x+col + (y+row)*width];
+                        i++;
+                    }
+                    else
+                    {
+                        data[i] = 0;
+                        i++;
+                    }
+                }
+            }
+        }
         __syncthreads();
-        unsigned int const filterCenter = (filterDim / 2);
         int aggregate = 0;
+        unsigned int xLocal = threadIdx.x;
+        unsigned int yLocal = threadIdx.y;
         for (unsigned int ky = 0; ky < filterDim; ky++)
         {
             int nky = filterDim - 1 - ky;
             for (unsigned int kx = 0; kx < filterDim; kx++)
             {
                 int nkx = filterDim - 1 - kx;
-
-                int yy = y + (ky - filterCenter);
-                int xx = x + (kx - filterCenter);
-                if (xx >= 0 && xx < (int)width && yy >= 0 && yy < (int)height)
-                    aggregate += in[xx + yy*width] * filter[nky * filterDim + nkx];
+                int yy = yLocal + ky;
+                int xx = xLocal + kx;
+                aggregate += data[xx + yy*(BLOCKX+filterCenter*2)] * filter[nky * filterDim + nkx];
             }
         }
         aggregate *= filterFactor;
@@ -353,6 +371,11 @@ int main(int argc, char **argv)
         return ERROR_EXIT;
     }
 
+    // Activate CUDA - No delay inside work later
+    unsigned char *dummy;
+    cudaErrorCheck(cudaMalloc((void**)&dummy, sizeof(unsigned char)));
+    cudaErrorCheck(cudaFree(dummy));
+
     if (test)
     {
         //********************************* CPU serial work start *********************************
@@ -445,9 +468,10 @@ int main(int argc, char **argv)
     unsigned char *imageChannelGPU_sm = NULL;
     unsigned char *processImageChannelGPU_sm = NULL;
     int *filterGPU_sm = NULL;
-    unsigned int filterDim_sm = 3;
-    float filterFactor_sm = laplacian1FilterFactor;
+    const unsigned int filterDim_sm = 3;
+    const float filterFactor_sm = laplacian1FilterFactor;
     const int *filter_sm = laplacian1Filter;
+    const unsigned int size_sm = (BLOCKX+filterDim_sm/2)*(BLOCKY+filterDim_sm/2);
 
     // Set up device memory
     cudaErrorCheck(cudaMalloc((void**)&imageChannelGPU_sm, sizeX*sizeY * sizeof(unsigned char)));
@@ -461,7 +485,7 @@ int main(int argc, char **argv)
     // GPU computation
     for (unsigned int i = 0; i < iterations; i++)
     {
-        device_applyFilter_sm<<<gridBlock_sm, threadBlock_sm>>>(
+        device_applyFilter_sm<<<gridBlock_sm, threadBlock_sm, size_sm*sizeof(unsigned char)>>>(
             processImageChannelGPU_sm, 
             imageChannelGPU_sm,
             sizeX,
@@ -500,7 +524,7 @@ int main(int argc, char **argv)
     // Map our single color image back to a normal BMP image with 3 color channels
     // mapEqual puts the color value on all three channels the same way
     // other mapping functions are mapRed, mapGreen, mapBlue
-    if (mapImageChannel(image, imageChannel2, mapEqual) != 0)
+    if (mapImageChannel(image, imageChannel3, mapEqual) != 0)
     {
         fprintf(stderr, "Could not map image channel!\n");
         freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
@@ -515,35 +539,11 @@ int main(int argc, char **argv)
         return ERROR_EXIT;
     };
 
-    printf("\nGPU time:\t%7.3f s  or  %7.3f ms\tBasic\n", cudaTime, cudaTime * 1e3);
-    printf("GPU time:\t%7.3f s  or  %7.3f ms\tShared memory\n", cudaTime_sm, cudaTime_sm * 1e3);
+    printf("\nGPU time:\t%7.3f s  or  %7.3f ms\tShared memory\n", cudaTime_sm, cudaTime_sm * 1e3);
+    printf("GPU time:\t%7.3f s  or  %7.3f ms\tBasic\n", cudaTime, cudaTime * 1e3);
     if (test)
         printf("CPU time:\t%7.3f s  or  %7.3f ms\tSerial\n", serialTime, serialTime * 1e3);
 
     freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
     return 0;
 };
-
-/*
- // Kernel Function: Runs per device thread
- __global__ void vectorMultUsingSharedMemory(float *dev_a, float, *dev_b, float *dev_c, int width)
-{
-    const int TILE_WIDTH = 16;
-    // Allocate shared memory
-    __shared__ float dev_as[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float dev_bs[TILE_WIDTH][TILE_WIDTH];
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
-    float dotProduct = 0.0f;
-    for (int i = 0; i < width/TILE_WIDTH; i++)
-    {
-        dev_as[threadIdx.y][threadIdx.x] = dev_a[row * width + (i * TILE_WIDTH + threadIdx.x)];
-        dev_bs[threadIdx.y][threadIdx.x] = dev_b[(i * TILE_WIDTH + threadIdx.y) * width + col];
-        __syncthreads(); 
-        for (int j = 0; j < TILE_WIDTH; j++) 
-            dotProduct += dev_as[threadIdx.y][j] * dev_bs[j][threadIdx.x];
-        __syncthreads();
-    }
-    dev_c[row * width + col] = dotProduct;
-} 
-*/
