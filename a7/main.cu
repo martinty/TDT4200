@@ -128,38 +128,121 @@ __global__ void device_applyFilter(unsigned char *out, unsigned char *in, unsign
 }
 
 // GPU shared memory - Apply convolutional filter on image data
-__global__ void device_applyFilter_sm(unsigned char *out, unsigned char *in, unsigned int width, unsigned int height, int *filter, unsigned int filterDim, float filterFactor)
+__global__ void device_applyFilter_sm(unsigned char *out, unsigned char *in, int width, int height, int *filter, int filterDim, float filterFactor)
 {
     extern __shared__ unsigned char data[];
-    unsigned int x = blockIdx.x * BLOCKX + threadIdx.x;
-    unsigned int y = blockIdx.y * BLOCKY + threadIdx.y;
-    unsigned int const filterCenter = (filterDim / 2);
+    int x = blockIdx.x * BLOCKX + threadIdx.x;
+    int y = blockIdx.y * BLOCKY + threadIdx.y;
+    int xLocal = threadIdx.x;
+    int yLocal = threadIdx.y;
+    int filterCenter = (filterDim / 2);
     if (x < width && y < height)
     {
-        if (threadIdx.x == 0 && threadIdx.y == 0)
+        // Tranfer center to shared memory
+        data[(xLocal+filterCenter) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = in[x + y*width];
+        
+        // Transfer west border to shared memory
+        if(threadIdx.x == 0)
         {
-            unsigned int i = 0;
-            for (int row = -(int)filterCenter; row < BLOCKY + (int)filterCenter; row++)
+            for(int i = 1; i <= filterCenter; i++)
             {
-                for (int col = -(int)filterCenter; col < BLOCKX + (int)filterCenter; col++)
+                if(threadIdx.y == 0) // North West corner
                 {
-                    if ((int)x+col >= 0 && (int)x+col < (int)width && (int)y+row >= 0 && (int)y+row < (int)height)
+                    for(int j = 0; j <= filterCenter; j++)
                     {
-                        data[i] = in[x+col + (y+row)*width];
-                        i++;
+                        if(x - i >= 0 && y - j >= 0)
+                            data[(xLocal+filterCenter-i) + (yLocal+filterCenter-j)*(BLOCKX+filterCenter*2)] = in[x-i + (y-j)*width];
+                        else
+                            data[(xLocal+filterCenter-i) + (yLocal+filterCenter-j)*(BLOCKX+filterCenter*2)] = 0;
                     }
+                }
+                else
+                {
+                    if(x - i >= 0)
+                        data[(xLocal+filterCenter-i) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = in[x-i + y*width];
                     else
-                    {
-                        data[i] = 0;
-                        i++;
-                    }
+                        data[(xLocal+filterCenter-i) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = 0;
                 }
             }
         }
+        
+        // Transfer north border to shared memory
+        if(threadIdx.y == 0)
+        {
+            for(int i = 1; i <= filterCenter; i++)
+            {
+                if(threadIdx.x == BLOCKX-1) // North East corner
+                {
+                    for(int j = 0; j <= filterCenter; j++)
+                    {
+                        if(x + j < width && y - i >= 0)
+                            data[(xLocal+filterCenter+j) + (yLocal+filterCenter-i)*(BLOCKX+filterCenter*2)] = in[x+j + (y-i)*width];
+                        else
+                            data[(xLocal+filterCenter+j) + (yLocal+filterCenter-i)*(BLOCKX+filterCenter*2)] = 0;
+                    }
+                }
+                else
+                {
+                    if(y - i >= 0)
+                        data[(xLocal+filterCenter) + (yLocal+filterCenter-i)*(BLOCKX+filterCenter*2)] = in[x + (y-i)*width];
+                    else
+                        data[(xLocal+filterCenter) + (yLocal+filterCenter-i)*(BLOCKX+filterCenter*2)] = 0;
+                }
+            }
+        }
+        
+        // Transfer east border to shared memory
+        if(threadIdx.x == BLOCKX-1)
+        {
+            for(int i = 1; i <= filterCenter; i++)
+            {
+                if(threadIdx.y == BLOCKY-1) // South East corner
+                {
+                    for(int j = 0; j <= filterCenter; j++)
+                    {
+                        if(x + i < width && y + j < height)
+                            data[(xLocal+filterCenter+i) + (yLocal+filterCenter+j)*(BLOCKX+filterCenter*2)] = in[x+i + (y+j)*width];
+                        else
+                            data[(xLocal+filterCenter+i) + (yLocal+filterCenter+j)*(BLOCKX+filterCenter*2)] = 0;
+                    }
+                }
+                else
+                {
+                    if(x + i < width)
+                        data[(xLocal+filterCenter+i) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = in[x+i + y*width];
+                    else
+                        data[(xLocal+filterCenter+i) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = 0;
+                }
+            }
+        }
+        
+        // Transfer south border to shared memory
+        if(threadIdx.y == BLOCKY-1)
+        {
+            for(int i = 1; i <= filterCenter; i++)
+            {
+                if(threadIdx.x == 0) // South West corner
+                {
+                    for(int j = 0; j <= filterCenter; j++)
+                    {
+                        if(x - j >= 0 && y + i < height)
+                            data[(xLocal+filterCenter-j) + (yLocal+filterCenter+i)*(BLOCKX+filterCenter*2)] = in[x-j + (y+i)*width];
+                        else
+                            data[(xLocal+filterCenter-j) + (yLocal+filterCenter+i)*(BLOCKX+filterCenter*2)] = 0;
+                    }
+                }
+                else
+                {
+                    if(y + i < height)
+                        data[(xLocal+filterCenter) + (yLocal+filterCenter+i)*(BLOCKX+filterCenter*2)] = in[x + (y+i)*width];
+                    else
+                        data[(xLocal+filterCenter) + (yLocal+filterCenter+i)*(BLOCKX+filterCenter*2)] = 0;
+                }
+            }
+        }
+
         __syncthreads();
         int aggregate = 0;
-        unsigned int xLocal = threadIdx.x;
-        unsigned int yLocal = threadIdx.y;
         for (unsigned int ky = 0; ky < filterDim; ky++)
         {
             int nky = filterDim - 1 - ky;
@@ -471,10 +554,10 @@ int main(int argc, char **argv)
     unsigned char *imageChannelGPU_sm = NULL;
     unsigned char *processImageChannelGPU_sm = NULL;
     int *filterGPU_sm = NULL;
-    const unsigned int filterDim_sm = 3;
+    const int filterDim_sm = 3;
     const float filterFactor_sm = laplacian1FilterFactor;
     const int *filter_sm = laplacian1Filter;
-    const unsigned int size_sm = (BLOCKX+filterDim_sm/2)*(BLOCKY+filterDim_sm/2);
+    const unsigned int size_sm = (BLOCKX+2*(filterDim_sm/2))*(BLOCKY+2*(filterDim_sm/2));
 
     // Set up device memory
     cudaErrorCheck(cudaMalloc((void**)&imageChannelGPU_sm, sizeX*sizeY * sizeof(unsigned char)));
