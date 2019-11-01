@@ -241,6 +241,7 @@ int main(int argc, char **argv)
     double serialTime = 0;
     double cudaTime = 0;
     double cudaTime_sm = 0;
+    double activateCudaTime = 0;
 
     // Compare GPU and CPU code
     bool test = false;
@@ -372,9 +373,11 @@ int main(int argc, char **argv)
     }
 
     // Activate CUDA - No delay inside work later
+    startTime = walltime();
     unsigned char *dummy;
     cudaErrorCheck(cudaMalloc((void**)&dummy, sizeof(unsigned char)));
     cudaErrorCheck(cudaFree(dummy));
+    activateCudaTime = walltime() - startTime;
 
     if (test)
     {
@@ -539,10 +542,12 @@ int main(int argc, char **argv)
         return ERROR_EXIT;
     };
 
-    printf("\nGPU time:\t%7.3f s  or  %7.3f ms\tShared memory\n", cudaTime_sm, cudaTime_sm * 1e3);
-    printf("GPU time:\t%7.3f s  or  %7.3f ms\tBasic\n", cudaTime, cudaTime * 1e3);
+    printf("\nRunning with %d iteration(s)\n", iterations);
+    printf("Activate CUDA time:\t%7.3f ms\n", activateCudaTime * 1e3);
+    printf("     Work GPU time:\t%7.3f ms\tShared memory\n", cudaTime_sm * 1e3);
+    printf("     Work GPU time:\t%7.3f ms\tBasic\n", cudaTime * 1e3);
     if (test)
-        printf("CPU time:\t%7.3f s  or  %7.3f ms\tSerial\n", serialTime, serialTime * 1e3);
+        printf("     Work CPU time:\t%7.3f ms\tSerial\n", serialTime * 1e3);
 
     freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
     return 0;
