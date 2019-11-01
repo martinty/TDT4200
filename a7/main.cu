@@ -420,7 +420,9 @@ int main(int argc, char **argv)
             filterGPU, filterDim, filterFactor
         );
         cudaErrorCheck(cudaGetLastError());
-        cudaErrorCheck(cudaMemcpy(imageChannelGPU, processImageChannelGPU, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyDeviceToDevice));
+        unsigned char *temp = processImageChannelGPU;
+        processImageChannelGPU = imageChannelGPU;
+        imageChannelGPU = temp;
     }
 
     // Copy data from device to host
@@ -467,7 +469,9 @@ int main(int argc, char **argv)
             filterGPU_sm, filterDim_sm, filterFactor_sm
         );
         cudaErrorCheck(cudaGetLastError());
-        cudaErrorCheck(cudaMemcpy(imageChannelGPU_sm, processImageChannelGPU_sm, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyDeviceToDevice));
+        unsigned char *temp_sm = processImageChannelGPU_sm;
+        processImageChannelGPU_sm = imageChannelGPU_sm;
+        imageChannelGPU_sm = temp_sm;
     }
 
     // Copy data from device to host
