@@ -9,8 +9,8 @@ extern "C" {
 }
 
 // Divide the problem into blocks of BLOCKX x BLOCKY threads
-#define BLOCKY 8
-#define BLOCKX 8
+#define BLOCKY 32
+#define BLOCKX 32
 
 #define ERROR_EXIT -1
 #define cudaErrorCheck(ans) { gpuAssert((ans), __FILE__, __LINE__); }
@@ -155,16 +155,12 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
                     {
                         if(x - i >= 0 && y - j >= 0)
                             data[(xLocal+filterCenter-i) + (yLocal+filterCenter-j)*(BLOCKX+filterCenter*2)] = in[x-i + (y-j)*width];
-                        else
-                            data[(xLocal+filterCenter-i) + (yLocal+filterCenter-j)*(BLOCKX+filterCenter*2)] = 0;
                     }
                 }
                 else
                 {
                     if(x - i >= 0)
                         data[(xLocal+filterCenter-i) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = in[x-i + y*width];
-                    else
-                        data[(xLocal+filterCenter-i) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = 0;
                 }
             }
         }
@@ -180,16 +176,12 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
                     {
                         if(x + j < width && y - i >= 0)
                             data[(xLocal+filterCenter+j) + (yLocal+filterCenter-i)*(BLOCKX+filterCenter*2)] = in[x+j + (y-i)*width];
-                        else
-                            data[(xLocal+filterCenter+j) + (yLocal+filterCenter-i)*(BLOCKX+filterCenter*2)] = 0;
                     }
                 }
                 else
                 {
                     if(y - i >= 0)
                         data[(xLocal+filterCenter) + (yLocal+filterCenter-i)*(BLOCKX+filterCenter*2)] = in[x + (y-i)*width];
-                    else
-                        data[(xLocal+filterCenter) + (yLocal+filterCenter-i)*(BLOCKX+filterCenter*2)] = 0;
                 }
             }
         }
@@ -205,16 +197,12 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
                     {
                         if(x + i < width && y + j < height)
                             data[(xLocal+filterCenter+i) + (yLocal+filterCenter+j)*(BLOCKX+filterCenter*2)] = in[x+i + (y+j)*width];
-                        else
-                            data[(xLocal+filterCenter+i) + (yLocal+filterCenter+j)*(BLOCKX+filterCenter*2)] = 0;
                     }
                 }
                 else
                 {
                     if(x + i < width)
                         data[(xLocal+filterCenter+i) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = in[x+i + y*width];
-                    else
-                        data[(xLocal+filterCenter+i) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = 0;
                 }
             }
         }
@@ -230,16 +218,12 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
                     {
                         if(x - j >= 0 && y + i < height)
                             data[(xLocal+filterCenter-j) + (yLocal+filterCenter+i)*(BLOCKX+filterCenter*2)] = in[x-j + (y+i)*width];
-                        else
-                            data[(xLocal+filterCenter-j) + (yLocal+filterCenter+i)*(BLOCKX+filterCenter*2)] = 0;
                     }
                 }
                 else
                 {
                     if(y + i < height)
                         data[(xLocal+filterCenter) + (yLocal+filterCenter+i)*(BLOCKX+filterCenter*2)] = in[x + (y+i)*width];
-                    else
-                        data[(xLocal+filterCenter) + (yLocal+filterCenter+i)*(BLOCKX+filterCenter*2)] = 0;
                 }
             }
         }
@@ -254,7 +238,10 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
                 int nkx = filterDim - 1 - kx;
                 int yy = yLocal + ky;
                 int xx = xLocal + kx;
-                aggregate += data[xx + yy*(BLOCKX+filterCenter*2)] * filter[nky * filterDim + nkx];
+                int yyy = y + (ky - filterCenter);
+                int xxx = x + (kx - filterCenter);
+                if (xxx >= 0 && xxx < width && yyy >= 0 && yyy < height)
+                    aggregate += data[xx + yy*(BLOCKX+filterCenter*2)] * filter[nky * filterDim + nkx];
             }
         }
         aggregate *= filterFactor;
@@ -409,6 +396,12 @@ int main(int argc, char **argv)
     // Set sizeX and sizeY for image
     const int sizeX = image->width;
     const int sizeY = image->height;
+    int offsetX = 0;
+    int offsetY = 0;
+    if (sizeX % BLOCKX)
+        offsetX = 1;
+    if (sizeY % BLOCKY)
+        offsetY = 1;
 
     if (test)
     {
@@ -502,7 +495,7 @@ int main(int argc, char **argv)
     startTime = walltime();
 
     // Variables
-    dim3 gridBlock(sizeX/BLOCKX, sizeY/BLOCKY);
+    dim3 gridBlock(sizeX/BLOCKX + offsetX, sizeY/BLOCKY + offsetY);
     dim3 threadBlock(BLOCKX, BLOCKY);
     unsigned char *imageChannelGPU = NULL;
     unsigned char *processImageChannelGPU = NULL;
@@ -547,7 +540,7 @@ int main(int argc, char **argv)
     startTime = walltime();
 
     // Variables
-    dim3 gridBlock_sm(sizeX/BLOCKX, sizeY/BLOCKY);
+    dim3 gridBlock_sm(sizeX/BLOCKX + offsetX, sizeY/BLOCKY + offsetY);
     dim3 threadBlock_sm(BLOCKX, BLOCKY);
     unsigned char *imageChannelGPU_sm = NULL;
     unsigned char *processImageChannelGPU_sm = NULL;
@@ -592,13 +585,10 @@ int main(int argc, char **argv)
     if (test)
     {
         // Check if GPU image channel is equal to CPU image channel
-        if (!isImageChannelEqual(imageChannel2->rawdata, imageChannel1->rawdata, sizeX*sizeY) ||
-            !isImageChannelEqual(imageChannel3->rawdata, imageChannel1->rawdata, sizeX*sizeY))
-        {
-            fprintf(stderr, "GPU image channel is not equal to serial image channel!\n");
-            freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
-            return ERROR_EXIT;
-        }
+        if (!isImageChannelEqual(imageChannel2->rawdata, imageChannel1->rawdata, sizeX*sizeY))
+            fprintf(stderr, "Error: GPU image channel 2 is not equal to serial image channel!\n");
+        if (!isImageChannelEqual(imageChannel3->rawdata, imageChannel1->rawdata, sizeX*sizeY))
+            fprintf(stderr, "Error: GPU image channel 3 is not equal to serial image channel!\n");
     }
 
     // Map our single color image back to a normal BMP image with 3 color channels
