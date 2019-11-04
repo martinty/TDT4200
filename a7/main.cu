@@ -133,8 +133,8 @@ __global__ void device_applyFilter(unsigned char *out, const unsigned char *in, 
 __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *in, const int width, const int height, const int N, 
                                       const int *filter, const int filterDim, const float filterFactor)
 {
-    extern __shared__ unsigned char data[];
-    int *filter_sm = (int*)&data[N];
+    extern __shared__ unsigned char data_sm[];
+    int *filter_sm = (int*)&data_sm[N];
     const int x = blockIdx.x * BLOCKX + threadIdx.x;
     const int y = blockIdx.y * BLOCKY + threadIdx.y;
     const int xLocal = threadIdx.x;
@@ -150,7 +150,7 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
     if (x < width && y < height)
     {
         // Tranfer center to shared memory
-        data[(xLocal+filterCenter) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = in[x + y*width];
+        data_sm[(xLocal+filterCenter) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = in[x + y*width];
         
         // Transfer west border to shared memory
         if(threadIdx.x == 0)
@@ -162,13 +162,13 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
                     for(int j = 0; j <= filterCenter; j++)
                     {
                         if(x - i >= 0 && y - j >= 0)
-                            data[(xLocal+filterCenter-i) + (yLocal+filterCenter-j)*(BLOCKX+filterCenter*2)] = in[x-i + (y-j)*width];
+                            data_sm[(xLocal+filterCenter-i) + (yLocal+filterCenter-j)*(BLOCKX+filterCenter*2)] = in[x-i + (y-j)*width];
                     }
                 }
                 else
                 {
                     if(x - i >= 0)
-                        data[(xLocal+filterCenter-i) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = in[x-i + y*width];
+                        data_sm[(xLocal+filterCenter-i) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = in[x-i + y*width];
                 }
             }
         }
@@ -183,13 +183,13 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
                     for(int j = 0; j <= filterCenter; j++)
                     {
                         if(x + j < width && y - i >= 0)
-                            data[(xLocal+filterCenter+j) + (yLocal+filterCenter-i)*(BLOCKX+filterCenter*2)] = in[x+j + (y-i)*width];
+                            data_sm[(xLocal+filterCenter+j) + (yLocal+filterCenter-i)*(BLOCKX+filterCenter*2)] = in[x+j + (y-i)*width];
                     }
                 }
                 else
                 {
                     if(y - i >= 0)
-                        data[(xLocal+filterCenter) + (yLocal+filterCenter-i)*(BLOCKX+filterCenter*2)] = in[x + (y-i)*width];
+                        data_sm[(xLocal+filterCenter) + (yLocal+filterCenter-i)*(BLOCKX+filterCenter*2)] = in[x + (y-i)*width];
                 }
             }
         }
@@ -204,13 +204,13 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
                     for(int j = 0; j <= filterCenter; j++)
                     {
                         if(x + i < width && y + j < height)
-                            data[(xLocal+filterCenter+i) + (yLocal+filterCenter+j)*(BLOCKX+filterCenter*2)] = in[x+i + (y+j)*width];
+                            data_sm[(xLocal+filterCenter+i) + (yLocal+filterCenter+j)*(BLOCKX+filterCenter*2)] = in[x+i + (y+j)*width];
                     }
                 }
                 else
                 {
                     if(x + i < width)
-                        data[(xLocal+filterCenter+i) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = in[x+i + y*width];
+                        data_sm[(xLocal+filterCenter+i) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = in[x+i + y*width];
                 }
             }
         }
@@ -225,13 +225,13 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
                     for(int j = 0; j <= filterCenter; j++)
                     {
                         if(x - j >= 0 && y + i < height)
-                            data[(xLocal+filterCenter-j) + (yLocal+filterCenter+i)*(BLOCKX+filterCenter*2)] = in[x-j + (y+i)*width];
+                            data_sm[(xLocal+filterCenter-j) + (yLocal+filterCenter+i)*(BLOCKX+filterCenter*2)] = in[x-j + (y+i)*width];
                     }
                 }
                 else
                 {
                     if(y + i < height)
-                        data[(xLocal+filterCenter) + (yLocal+filterCenter+i)*(BLOCKX+filterCenter*2)] = in[x + (y+i)*width];
+                        data_sm[(xLocal+filterCenter) + (yLocal+filterCenter+i)*(BLOCKX+filterCenter*2)] = in[x + (y+i)*width];
                 }
             }
         }
@@ -249,7 +249,7 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
                 int yyy = y + (ky - filterCenter);
                 int xxx = x + (kx - filterCenter);
                 if (xxx >= 0 && xxx < width && yyy >= 0 && yyy < height)
-                    aggregate += data[xx + yy*(BLOCKX+filterCenter*2)] * filter_sm[nky * filterDim + nkx];
+                    aggregate += data_sm[xx + yy*(BLOCKX+filterCenter*2)] * filter_sm[nky * filterDim + nkx];
             }
         }
         aggregate *= filterFactor;
