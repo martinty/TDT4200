@@ -141,7 +141,7 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
     const int yLocal = threadIdx.y;
     const int filterCenter = (filterDim / 2);
 
-    if(xLocal == 0 && yLocal == 0)
+    if(xLocal == 1 && yLocal == 1)
     {
         for (int i = 0; i < filterDim*filterDim; i++)
             filter_sm[i] = filter[i];
@@ -622,8 +622,15 @@ int main(int argc, char **argv)
     printf("Activate CUDA time:\t%7.3f ms\n", activateCudaTime * 1e3);
     printf("     Work GPU time:\t%7.3f ms\tShared memory\n", cudaTime_sm * 1e3);
     printf("     Work GPU time:\t%7.3f ms\tBasic\n", cudaTime * 1e3);
-    if (test)
+
+    if(test)
+    {
         printf("     Work CPU time:\t%7.3f ms\tSerial\n", serialTime * 1e3);
+        printf("Shared memory GPU is %.1f times faster then serial CPU\n", serialTime/cudaTime_sm);
+        printf("Shared memory GPU is %.1f times faster then basic GPU\n", cudaTime/cudaTime_sm);
+        printf("Basic GPU is %.1f times faster then serial CPU\n", serialTime/cudaTime);
+    }
+
 
     freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
     return 0;
