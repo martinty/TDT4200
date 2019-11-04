@@ -68,25 +68,25 @@ float const gaussianFilterFactor = (float)1.0 / 256.0;
 */
 
 // CPU serial - Apply convolutional filter on image data
-void applyFilter(unsigned char **out, unsigned char **in, const unsigned int width, const unsigned int height, 
-                 const int *filter, const unsigned int filterDim, const float filterFactor)
+void applyFilter(unsigned char **out, unsigned char **in, const int width, const int height, 
+                 const int *filter, const int filterDim, const float filterFactor)
 {
-    const unsigned int filterCenter = (filterDim / 2);
-    for (unsigned int y = 0; y < height; y++)
+    const int filterCenter = filterDim / 2;
+    for (int y = 0; y < height; y++)
     {
-        for (unsigned int x = 0; x < width; x++)
+        for (int x = 0; x < width; x++)
         {
             int aggregate = 0;
-            for (unsigned int ky = 0; ky < filterDim; ky++)
+            for (int ky = 0; ky < filterDim; ky++)
             {
                 int nky = filterDim - 1 - ky;
-                for (unsigned int kx = 0; kx < filterDim; kx++)
+                for (int kx = 0; kx < filterDim; kx++)
                 {
                     int nkx = filterDim - 1 - kx;
 
                     int yy = y + (ky - filterCenter);
                     int xx = x + (kx - filterCenter);
-                    if (xx >= 0 && xx < (int)width && yy >= 0 && yy < (int)height)
+                    if (xx >= 0 && xx < width && yy >= 0 && yy < height)
                         aggregate += in[yy][xx] * filter[nky * filterDim + nkx];
                 }
             }
@@ -103,8 +103,8 @@ void applyFilter(unsigned char **out, unsigned char **in, const unsigned int wid
 __global__ void device_applyFilter(unsigned char *out, const unsigned char *in, const int width, const int height, 
                                    const int *filter, const int filterDim, const float filterFactor)
 {
-    const unsigned int x = blockIdx.x * BLOCKX + threadIdx.x;
-    const unsigned int y = blockIdx.y * BLOCKY + threadIdx.y;
+    const int x = blockIdx.x * BLOCKX + threadIdx.x;
+    const int y = blockIdx.y * BLOCKY + threadIdx.y;
     if (x < width && y < height)
     {
         const int filterCenter = filterDim / 2;
@@ -294,9 +294,9 @@ double walltime(void)
     return (t.tv_sec + 1e-6 * t.tv_usec);
 }
 
-bool isImageChannelEqual(unsigned char *a, unsigned char *b, unsigned int size)
+bool isImageChannelEqual(const unsigned char *a, const unsigned char *b, const int size)
 {
-    for (unsigned int i = 0; i < size; i++)
+    for (int i = 0; i < size; i++)
     {
         if (a[i] != b[i])
             return false;
@@ -407,8 +407,8 @@ int main(int argc, char **argv)
     }
 
     // Set sizeX and sizeY for image
-    const unsigned int sizeX = image->width;
-    const unsigned int sizeY = image->height;
+    const int sizeX = image->width;
+    const int sizeY = image->height;
 
     if (test)
     {
