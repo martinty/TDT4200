@@ -130,15 +130,23 @@ __global__ void device_applyFilter(unsigned char *out, const unsigned char *in, 
 }
 
 // GPU shared memory - Apply convolutional filter on image data
-__global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *in, const int width, const int height, 
+__global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *in, const int width, const int height, const int N, 
                                       const int *filter, const int filterDim, const float filterFactor)
 {
     extern __shared__ unsigned char data[];
+    int *filter_sm = (int*)&data[N];
     const int x = blockIdx.x * BLOCKX + threadIdx.x;
     const int y = blockIdx.y * BLOCKY + threadIdx.y;
     const int xLocal = threadIdx.x;
     const int yLocal = threadIdx.y;
     const int filterCenter = (filterDim / 2);
+
+    if(xLocal == 0 && yLocal == 0)
+    {
+        for (int i = 0; i < filterDim*filterDim; i++)
+            filter_sm[i] = filter[i];
+    }
+
     if (x < width && y < height)
     {
         // Tranfer center to shared memory
@@ -241,7 +249,7 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
                 int yyy = y + (ky - filterCenter);
                 int xxx = x + (kx - filterCenter);
                 if (xxx >= 0 && xxx < width && yyy >= 0 && yyy < height)
-                    aggregate += data[xx + yy*(BLOCKX+filterCenter*2)] * filter[nky * filterDim + nkx];
+                    aggregate += data[xx + yy*(BLOCKX+filterCenter*2)] * filter_sm[nky * filterDim + nkx];
             }
         }
         aggregate *= filterFactor;
@@ -545,7 +553,10 @@ int main(int argc, char **argv)
     unsigned char *imageChannelGPU_sm = NULL;
     unsigned char *processImageChannelGPU_sm = NULL;
     int *filterGPU_sm = NULL;
-    const unsigned int size_sm = (BLOCKX+2*(filterDim/2))*(BLOCKY+2*(filterDim/2));
+    const int N = (BLOCKX+2*(filterDim/2))*(BLOCKY+2*(filterDim/2));
+    const int sizeImage_sm = N * sizeof(unsigned char);
+    const int sizeFilter_sm = filterDim * filterDim * sizeof(int);
+    const int size_sm = sizeImage_sm + sizeFilter_sm;
 
     // Set up device memory
     cudaErrorCheck(cudaMalloc((void**)&imageChannelGPU_sm, sizeX*sizeY * sizeof(unsigned char)));
@@ -559,10 +570,10 @@ int main(int argc, char **argv)
     // GPU computation
     for (unsigned int i = 0; i < iterations; i++)
     {
-        device_applyFilter_sm<<<gridBlock_sm, threadBlock_sm, size_sm*sizeof(unsigned char)>>>(
+        device_applyFilter_sm<<<gridBlock_sm, threadBlock_sm, size_sm>>>(
             processImageChannelGPU_sm, 
             imageChannelGPU_sm,
-            sizeX, sizeY, 
+            sizeX, sizeY, N, 
             filterGPU_sm, filterDim, filterFactor
         );
         cudaErrorCheck(cudaGetLastError());
