@@ -4,13 +4,20 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <cuda_runtime.h>
+#include <cooperative_groups.h>
 extern "C" { 
     #include "libs/bitmap.h"
 }
 
-// Divide the problem into blocks of BLOCKX x BLOCKY threads
-#define BLOCKY 32
-#define BLOCKX 32
+namespace cg = cooperative_groups;
+
+// BLOCKX * BLOCKY can max be 1024 (threads)
+// GRIDX * GRIDY can max be 28 (MSs)
+#define BLOCKY  32
+#define BLOCKX  32
+#define GRIDX   7
+#define GRIDY   4 
 
 #define ERROR_EXIT -1
 #define cudaErrorCheck(ans) { gpuAssert((ans), __FILE__, __LINE__); }
@@ -262,6 +269,66 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
         __syncthreads();
 }
 
+// GPU cooperative groups - Apply convolutional filter on image data
+__global__ void device_applyFilter_cg(unsigned char *image, unsigned char *process, const int width, const int height, const int Nx, const int Ny, 
+    const int *filter, const int filterDim, const float filterFactor, const int iterations)
+{
+    extern __shared__ int filter_cg[];
+    __shared__ unsigned char data_sq[49000]; 
+    cg::grid_group grid = cg::this_grid();
+    if(threadIdx.x == 0 && threadIdx.y == 0)
+    {
+        for (int i = 0; i < filterDim*filterDim; i++)
+            filter_cg[i] = filter[i];
+    }
+    if(threadIdx.x == 0 && threadIdx.y == 0)
+    {
+        for (int i = 0; i < 49000; i++)
+            data_sq[i] = 1;
+    }
+    cg::sync(grid);
+    for (int i = 0; i < iterations; i++)
+    {
+        int x = (blockIdx.x * BLOCKX + threadIdx.x) * Nx;
+        int y = (blockIdx.y * BLOCKY + threadIdx.y) * Ny;
+        for(int iy = 0; iy < Ny; iy++)
+        {
+            for(int ix = 0; ix < Nx; ix++)
+            {
+                if (x < width && y < height)
+                {
+                    const int filterCenter = filterDim / 2;
+                    int aggregate = 0;
+                    for (int ky = 0; ky < filterDim; ky++)
+                    {
+                        int nky = filterDim - 1 - ky;
+                        for (int kx = 0; kx < filterDim; kx++)
+                        {
+                        int nkx = filterDim - 1 - kx;
+                        int yy = y + (ky - filterCenter);
+                        int xx = x + (kx - filterCenter);
+                        if (xx >= 0 && xx < width && yy >= 0 && yy < height)
+                        aggregate += image[xx + yy*width] * filter_cg[nky * filterDim + nkx];
+                        }
+                    }
+                    aggregate *= filterFactor;
+                    if (aggregate > 0)
+                        process[x + y*width] = (aggregate > 255) ? 255 : aggregate;
+                    else
+                        process[x + y*width] = 0;
+                }
+                x++;
+            }
+            y++;
+        }
+        cg::sync(grid);
+        unsigned char *temp = process;
+        process = image;
+        image = temp;
+        cg::sync(grid);
+    }
+}
+
 void help(char const *exec, char const opt, char const *optarg)
 {
     FILE *out = stdout;
@@ -299,7 +366,15 @@ bool isImageChannelEqual(const unsigned char *a, const unsigned char *b, const i
     return true;
 }
 
-void freeMemory(char *output, char *input, bmpImage *image, bmpImageChannel *imageChannel1, bmpImageChannel *imageChannel2, bmpImageChannel *imageChannel3)
+int getNumberOfSM(int devID)
+{
+    cudaDeviceProp deviceProp;
+    cudaErrorCheck(cudaGetDeviceProperties(&deviceProp, devID));
+    return deviceProp.multiProcessorCount;
+}
+
+void freeMemory(char *output, char *input, bmpImage *image, 
+    bmpImageChannel *imageChannel1, bmpImageChannel *imageChannel2, bmpImageChannel *imageChannel3, bmpImageChannel *imageChannel4)
 {
     if (output)
         free(output);
@@ -313,6 +388,8 @@ void freeMemory(char *output, char *input, bmpImage *image, bmpImageChannel *ima
         freeBmpImageChannel(imageChannel2);
     if (imageChannel3)
         freeBmpImageChannel(imageChannel3);
+    if (imageChannel4)
+        freeBmpImageChannel(imageChannel4);    
 }
 
 int main(int argc, char **argv)
@@ -322,6 +399,7 @@ int main(int argc, char **argv)
     double serialTime = 0;
     double cudaTime = 0;
     double cudaTime_sm = 0;
+    double cudaTime_cg = 0;
     double activateCudaTime = 0;
 
     // Compare GPU and CPU code
@@ -335,6 +413,7 @@ int main(int argc, char **argv)
     bmpImageChannel *imageChannel1 = NULL;
     bmpImageChannel *imageChannel2 = NULL;
     bmpImageChannel *imageChannel3 = NULL;
+    bmpImageChannel *imageChannel4 = NULL;
 
     static struct option const long_options[] = {
         {"help", no_argument, 0, 'h'},
@@ -391,26 +470,34 @@ int main(int argc, char **argv)
     if (image == NULL)
     {
         fprintf(stderr, "Could not allocate new image!\n");
-        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
         return ERROR_EXIT;
     }
     if (loadBmpImage(image, input) != 0)
     {
         fprintf(stderr, "Could not load bmp image '%s'!\n", input);
-        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
         return ERROR_EXIT;
     }
 
-    // Set sizeX and sizeY for image
+    // sizeX and sizeY for image
     const int sizeX = image->width;
     const int sizeY = image->height;
-    int offsetX = 0;
-    int offsetY = 0;
-    if (sizeX % BLOCKX)
-        offsetX = 1;
-    if (sizeY % BLOCKY)
-        offsetY = 1;
 
+    // Offset for BLOCK/GRID size sent to the cuda kernel
+    int offsetBlockX = 0;
+    int offsetBlockY = 0;
+    int offsetGridX = 0;
+    int offsetGridY = 0;
+    if (sizeX % BLOCKX)
+        offsetBlockX = 1;
+    if (sizeY % BLOCKY)
+        offsetBlockY = 1;
+    if (sizeX % (GRIDX * BLOCKX))
+        offsetGridX = 1;
+    if (sizeY % (GRIDY * BLOCKY))
+        offsetGridY = 1;
+        
     if (test)
     {
         // Create a single color channel image for CPU serial code
@@ -418,13 +505,13 @@ int main(int argc, char **argv)
         if (imageChannel1 == NULL)
         {
             fprintf(stderr, "Could not allocate new image channel 1!\n");
-            freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
+            freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
             return ERROR_EXIT;
         }
         if (extractImageChannel(imageChannel1, image, extractAverage) != 0)
         {
             fprintf(stderr, "Could not extract image channel 1!\n");
-            freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
+            freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
             return ERROR_EXIT;
         }
     }
@@ -434,13 +521,13 @@ int main(int argc, char **argv)
     if (imageChannel2 == NULL)
     {
         fprintf(stderr, "Could not allocate new image channel 2!\n");
-        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
         return ERROR_EXIT;
     }
     if (extractImageChannel(imageChannel2, image, extractAverage) != 0)
     {
         fprintf(stderr, "Could not extract image channel 2!\n");
-        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
         return ERROR_EXIT;
     }
 
@@ -449,13 +536,28 @@ int main(int argc, char **argv)
     if (imageChannel3 == NULL)
     {
         fprintf(stderr, "Could not allocate new image channel 2!\n");
-        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
         return ERROR_EXIT;
     }
     if (extractImageChannel(imageChannel3, image, extractAverage) != 0)
     {
         fprintf(stderr, "Could not extract image channel 2!\n");
-        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
+        return ERROR_EXIT;
+    }
+
+    // Create a single color channel image for GPU cooperative groups code
+    imageChannel4 = newBmpImageChannel(sizeX, sizeY);
+    if (imageChannel3 == NULL)
+    {
+        fprintf(stderr, "Could not allocate new image channel 2!\n");
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
+        return ERROR_EXIT;
+    }
+    if (extractImageChannel(imageChannel4, image, extractAverage) != 0)
+    {
+        fprintf(stderr, "Could not extract image channel 2!\n");
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
         return ERROR_EXIT;
     }
 
@@ -503,7 +605,7 @@ int main(int argc, char **argv)
     startTime = walltime();
 
     // Variables
-    dim3 gridBlock(sizeX/BLOCKX + offsetX, sizeY/BLOCKY + offsetY);
+    dim3 gridBlock(sizeX/BLOCKX + offsetBlockX, sizeY/BLOCKY + offsetBlockY);
     dim3 threadBlock(BLOCKX, BLOCKY);
     unsigned char *imageChannelGPU = NULL;
     unsigned char *processImageChannelGPU = NULL;
@@ -548,7 +650,7 @@ int main(int argc, char **argv)
     startTime = walltime();
 
     // Variables
-    dim3 gridBlock_sm(sizeX/BLOCKX + offsetX, sizeY/BLOCKY + offsetY);
+    dim3 gridBlock_sm(sizeX/BLOCKX + offsetBlockX, sizeY/BLOCKY + offsetBlockY);
     dim3 threadBlock_sm(BLOCKX, BLOCKY);
     unsigned char *imageChannelGPU_sm = NULL;
     unsigned char *processImageChannelGPU_sm = NULL;
@@ -593,20 +695,74 @@ int main(int argc, char **argv)
     cudaTime_sm = walltime() - startTime;
     //********************************* GPU shared memory work stop *********************************
 
+    //********************************* GPU cooperative groups work start ***************************
+    startTime = walltime();
+
+    // Variables
+    dim3 gridDim_cg(GRIDX, GRIDY);
+    dim3 blockDim_cg(BLOCKX, BLOCKY);
+    unsigned char *imageChannelGPU_cg = NULL;
+    unsigned char *processImageChannelGPU_cg = NULL;
+    int *filterGPU_cg = NULL;
+    const int sizeFilter_cg = filterDim * filterDim * sizeof(int);
+    const int Nx = sizeX / (GRIDX * BLOCKX) + offsetGridX;
+    const int Ny = sizeY / (GRIDY * BLOCKY) + offsetGridY;
+
+    // Set up device memory
+    cudaErrorCheck(cudaMalloc((void**)&imageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char)));
+    cudaErrorCheck(cudaMalloc((void**)&processImageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char)));
+    cudaErrorCheck(cudaMalloc((void**)&filterGPU_cg, filterDim*filterDim * sizeof(int)));
+
+    // Copy data from host to device
+    cudaErrorCheck(cudaMemcpy(imageChannelGPU_cg, imageChannel3->rawdata, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyHostToDevice));
+    cudaErrorCheck(cudaMemcpy(filterGPU_cg, filter, sizeFilter_cg, cudaMemcpyHostToDevice));
+
+    // Arguments for CUDA kernel
+    void *kernelArgs_cg[] = {
+        (void *)&imageChannelGPU_cg, (void *)&processImageChannelGPU_cg,
+        (void *)&sizeX, (void *)&sizeY,
+        (void *)&Nx, (void *)&Ny,
+        (void *)&filterGPU_cg, (void *)&filterDim, (void *)&filterFactor,
+        (void *)&iterations
+    };
+
+    // GPU computation
+    cudaErrorCheck(cudaLaunchCooperativeKernel(
+        (void *)device_applyFilter_cg,
+        gridDim_cg, blockDim_cg, 
+        kernelArgs_cg,                                      
+        sizeFilter_cg, 
+        NULL
+    ));
+    cudaErrorCheck(cudaGetLastError());
+
+    // Copy data from device to host
+    cudaErrorCheck(cudaMemcpy(imageChannel4->rawdata, imageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyDeviceToHost));
+
+    // Free the device memory
+    cudaErrorCheck(cudaFree(imageChannelGPU_cg));
+    cudaErrorCheck(cudaFree(processImageChannelGPU_cg));
+    cudaErrorCheck(cudaFree(filterGPU_cg));
+    
+    cudaTime_cg = walltime() - startTime;
+    //********************************* GPU cooperative groups work stop ****************************
+
     if (test)
     {
         // Check if GPU image channel is equal to CPU image channel
         if (!isImageChannelEqual(imageChannel2->rawdata, imageChannel1->rawdata, sizeX*sizeY))
-            fprintf(stderr, "Error: GPU image channel 2 is not equal to serial image channel!\n");
+            fprintf(stderr, "\nError: GPU image channel 2 is not equal to serial image channel!\n");
         if (!isImageChannelEqual(imageChannel3->rawdata, imageChannel1->rawdata, sizeX*sizeY))
-            fprintf(stderr, "Error: GPU image channel 3 is not equal to serial image channel!\n");
+            fprintf(stderr, "\nError: GPU image channel 3 is not equal to serial image channel!\n");
+        if (!isImageChannelEqual(imageChannel4->rawdata, imageChannel1->rawdata, sizeX*sizeY))
+            fprintf(stderr, "\nError: GPU image channel 4 is not equal to serial image channel!\n");    
     }
 
     // Map our single color image back to a normal BMP image with 3 color channels
-    if (mapImageChannel(image, imageChannel3, mapEqual) != 0)
+    if (mapImageChannel(image, imageChannel4, mapEqual) != 0)
     {
         fprintf(stderr, "Could not map image channel!\n");
-        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
         return ERROR_EXIT;
     }
 
@@ -614,24 +770,27 @@ int main(int argc, char **argv)
     if (saveBmpImage(image, output) != 0)
     {
         fprintf(stderr, "Could not save output to '%s'!\n", output);
-        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
+        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
         return ERROR_EXIT;
     };
 
     printf("\nRunning with %d iteration(s)\n", iterations);
     printf("Activate CUDA time:\t%7.3f ms\n", activateCudaTime * 1e3);
+    printf("     Work GPU time:\t%7.3f ms\tCooperative groups\n", cudaTime_cg * 1e3);
     printf("     Work GPU time:\t%7.3f ms\tShared memory\n", cudaTime_sm * 1e3);
     printf("     Work GPU time:\t%7.3f ms\tBasic\n", cudaTime * 1e3);
 
     if(test)
     {
         printf("     Work CPU time:\t%7.3f ms\tSerial\n", serialTime * 1e3);
-        printf("Shared memory GPU is %.1f times faster then serial CPU\n", serialTime/cudaTime_sm);
+        printf("\nCooperative groups GPU is %.1f times faster then shared memory GPU\n", cudaTime_sm/cudaTime_cg);
+        printf("Cooperative groups GPU is %.1f times faster then basic GPU\n", cudaTime/cudaTime_cg);
+        printf("Cooperative groups GPU is %.1f times faster then serial CPU\n", serialTime/cudaTime_cg);
         printf("Shared memory GPU is %.1f times faster then basic GPU\n", cudaTime/cudaTime_sm);
+        printf("Shared memory GPU is %.1f times faster then serial CPU\n", serialTime/cudaTime_sm);
         printf("Basic GPU is %.1f times faster then serial CPU\n", serialTime/cudaTime);
     }
 
-
-    freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3);
+    freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
     return 0;
 };

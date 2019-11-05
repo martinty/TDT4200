@@ -1,10 +1,12 @@
-PATH+=:/usr/local/cuda/bin
-I=1
+PATH += :/usr/local/cuda/bin
+I = 1
+NVCCFLAGS += -arch=sm_61 -rdc=true -O3 -lm
+DEBUGFLAGS += -lineinfo
 
 all: main
 
 main:
-	nvcc -o main.out libs/bitmap.c main.cu -O3 -lm
+	nvcc $(NVCCFLAGS) libs/bitmap.c main.cu -o main.out 
 
 .PHONY: run test debug help clean
 
@@ -15,7 +17,7 @@ test: main
 	./main.out before.bmp after.bmp -t -i $(I)
 
 debug:
-	nvcc -lineinfo -o main.out libs/bitmap.c main.cu -O3 -lm
+	nvcc $(NVCCFLAGS) $(DEBUGFLAGS) libs/bitmap.c main.cu -o main.out 
 	cuda-memcheck ./main.out before.bmp after.bmp -i $(I) |more
 
 help: main
