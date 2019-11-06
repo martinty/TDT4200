@@ -31,6 +31,9 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort =
     }
 }
 
+// Constant memory for GPU
+__constant__ int constFilterGPU[25];
+
 // Convolutional Filter Examples, each with dimension 3,
 // gaussian filter with dimension 5
 // If you apply another filter, remember not only to exchange
@@ -271,22 +274,10 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
 
 // GPU cooperative groups - Apply convolutional filter on image data
 __global__ void device_applyFilter_cg(unsigned char *image, unsigned char *process, const int width, const int height, const int Nx, const int Ny, 
-    const int *filter, const int filterDim, const float filterFactor, const int iterations)
+    const int filterDim, const float filterFactor, const int iterations)
 {
-    extern __shared__ int filter_cg[];
-    __shared__ unsigned char data_sq[49000]; 
+    //__shared__ unsigned char data_sq[1]; 
     cg::grid_group grid = cg::this_grid();
-    if(threadIdx.x == 0 && threadIdx.y == 0)
-    {
-        for (int i = 0; i < filterDim*filterDim; i++)
-            filter_cg[i] = filter[i];
-    }
-    if(threadIdx.x == 0 && threadIdx.y == 0)
-    {
-        for (int i = 0; i < 49000; i++)
-            data_sq[i] = 1;
-    }
-    cg::sync(grid);
     for (int i = 0; i < iterations; i++)
     {
         int x = (blockIdx.x * BLOCKX + threadIdx.x) * Nx;
@@ -308,7 +299,7 @@ __global__ void device_applyFilter_cg(unsigned char *image, unsigned char *proce
                         int yy = y + (ky - filterCenter);
                         int xx = x + (kx - filterCenter);
                         if (xx >= 0 && xx < width && yy >= 0 && yy < height)
-                        aggregate += image[xx + yy*width] * filter_cg[nky * filterDim + nkx];
+                            aggregate += image[xx + yy*width] * constFilterGPU[nky * filterDim + nkx];
                         }
                     }
                     aggregate *= filterFactor;
@@ -323,8 +314,8 @@ __global__ void device_applyFilter_cg(unsigned char *image, unsigned char *proce
         }
         cg::sync(grid);
         unsigned char *temp = process;
-        process = image;
-        image = temp;
+        *process = *image;
+        *image = *temp;
         cg::sync(grid);
     }
 }
@@ -356,14 +347,26 @@ double walltime(void)
     return (t.tv_sec + 1e-6 * t.tv_usec);
 }
 
-bool isImageChannelEqual(const unsigned char *a, const unsigned char *b, const int size)
+int isImageChannelEqual(unsigned char **a, unsigned char **b, const int sizeX, const int sizeY, const int ch)
 {
-    for (int i = 0; i < size; i++)
+    int errors = 0;
+    for(int y = 0; y < sizeY; y++)
     {
-        if (a[i] != b[i])
-            return false;
+        for(int x = 0; x < sizeX; x++)
+        {
+            if(a[y][x] != b[y][x])
+            {
+                if(errors == 0)
+                    printf("\n*** Pixel errors in image ***\n");
+                errors++;
+                if(errors <= 5)
+                printf("Ch %d: Pixel [x=%d, y=%d] \t expected %d \t got %d\n", ch, x, y, b[y][x], a[y][x]);
+            }
+        }
     }
-    return true;
+    if(errors > 0)
+        printf("Ch %d: %d errors!\n", ch, errors);
+    return errors;
 }
 
 int getNumberOfSM(int devID)
@@ -703,7 +706,6 @@ int main(int argc, char **argv)
     dim3 blockDim_cg(BLOCKX, BLOCKY);
     unsigned char *imageChannelGPU_cg = NULL;
     unsigned char *processImageChannelGPU_cg = NULL;
-    int *filterGPU_cg = NULL;
     const int sizeFilter_cg = filterDim * filterDim * sizeof(int);
     const int Nx = sizeX / (GRIDX * BLOCKX) + offsetGridX;
     const int Ny = sizeY / (GRIDY * BLOCKY) + offsetGridY;
@@ -711,18 +713,17 @@ int main(int argc, char **argv)
     // Set up device memory
     cudaErrorCheck(cudaMalloc((void**)&imageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char)));
     cudaErrorCheck(cudaMalloc((void**)&processImageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char)));
-    cudaErrorCheck(cudaMalloc((void**)&filterGPU_cg, filterDim*filterDim * sizeof(int)));
 
     // Copy data from host to device
     cudaErrorCheck(cudaMemcpy(imageChannelGPU_cg, imageChannel3->rawdata, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyHostToDevice));
-    cudaErrorCheck(cudaMemcpy(filterGPU_cg, filter, sizeFilter_cg, cudaMemcpyHostToDevice));
+    cudaErrorCheck(cudaMemcpyToSymbol(constFilterGPU, filter, sizeFilter_cg));
 
     // Arguments for CUDA kernel
     void *kernelArgs_cg[] = {
         (void *)&imageChannelGPU_cg, (void *)&processImageChannelGPU_cg,
         (void *)&sizeX, (void *)&sizeY,
         (void *)&Nx, (void *)&Ny,
-        (void *)&filterGPU_cg, (void *)&filterDim, (void *)&filterFactor,
+        (void *)&filterDim, (void *)&filterFactor,
         (void *)&iterations
     };
 
@@ -731,7 +732,7 @@ int main(int argc, char **argv)
         (void *)device_applyFilter_cg,
         gridDim_cg, blockDim_cg, 
         kernelArgs_cg,                                      
-        sizeFilter_cg, 
+        0, 
         NULL
     ));
     cudaErrorCheck(cudaGetLastError());
@@ -742,7 +743,6 @@ int main(int argc, char **argv)
     // Free the device memory
     cudaErrorCheck(cudaFree(imageChannelGPU_cg));
     cudaErrorCheck(cudaFree(processImageChannelGPU_cg));
-    cudaErrorCheck(cudaFree(filterGPU_cg));
     
     cudaTime_cg = walltime() - startTime;
     //********************************* GPU cooperative groups work stop ****************************
@@ -750,12 +750,12 @@ int main(int argc, char **argv)
     if (test)
     {
         // Check if GPU image channel is equal to CPU image channel
-        if (!isImageChannelEqual(imageChannel2->rawdata, imageChannel1->rawdata, sizeX*sizeY))
-            fprintf(stderr, "\nError: GPU image channel 2 is not equal to serial image channel!\n");
-        if (!isImageChannelEqual(imageChannel3->rawdata, imageChannel1->rawdata, sizeX*sizeY))
-            fprintf(stderr, "\nError: GPU image channel 3 is not equal to serial image channel!\n");
-        if (!isImageChannelEqual(imageChannel4->rawdata, imageChannel1->rawdata, sizeX*sizeY))
-            fprintf(stderr, "\nError: GPU image channel 4 is not equal to serial image channel!\n");    
+        int errors = 0;
+        errors += isImageChannelEqual(imageChannel2->data, imageChannel1->data, sizeX, sizeY, 2);
+        errors += isImageChannelEqual(imageChannel3->data, imageChannel1->data, sizeX, sizeY, 3);
+        errors += isImageChannelEqual(imageChannel4->data, imageChannel1->data, sizeX, sizeY, 4);
+        if(errors == 0)
+            printf("\n*** Every pixel is correct! ***\n");
     }
 
     // Map our single color image back to a normal BMP image with 3 color channels
@@ -774,22 +774,26 @@ int main(int argc, char **argv)
         return ERROR_EXIT;
     };
 
-    printf("\nRunning with %d iteration(s)\n", iterations);
-    printf("Activate CUDA time:\t%7.3f ms\n", activateCudaTime * 1e3);
-    printf("     Work GPU time:\t%7.3f ms\tCooperative groups\n", cudaTime_cg * 1e3);
-    printf("     Work GPU time:\t%7.3f ms\tShared memory\n", cudaTime_sm * 1e3);
-    printf("     Work GPU time:\t%7.3f ms\tBasic\n", cudaTime * 1e3);
+    printf("\n*** Run times ***\n");
+    printf("Running with %d iteration(s)\n", iterations);
+    printf("Activate CUDA time:%12.3f ms\n", activateCudaTime * 1e3);
+    printf("     Work GPU time:%12.3f ms\tCooperative groups \tch 4 \n", cudaTime_cg * 1e3);
+    printf("     Work GPU time:%12.3f ms\tShared memory \t\tch 3 \n", cudaTime_sm * 1e3);
+    printf("     Work GPU time:%12.3f ms\tBasic \t\t\tch 2 \n", cudaTime * 1e3);
 
     if(test)
     {
-        printf("     Work CPU time:\t%7.3f ms\tSerial\n", serialTime * 1e3);
-        printf("\nCooperative groups GPU is %.1f times faster then shared memory GPU\n", cudaTime_sm/cudaTime_cg);
-        printf("Cooperative groups GPU is %.1f times faster then basic GPU\n", cudaTime/cudaTime_cg);
-        printf("Cooperative groups GPU is %.1f times faster then serial CPU\n", serialTime/cudaTime_cg);
-        printf("Shared memory GPU is %.1f times faster then basic GPU\n", cudaTime/cudaTime_sm);
-        printf("Shared memory GPU is %.1f times faster then serial CPU\n", serialTime/cudaTime_sm);
-        printf("Basic GPU is %.1f times faster then serial CPU\n", serialTime/cudaTime);
+        printf("     Work CPU time:%12.3f ms\tSerial \t\t\tch 1 \n", serialTime * 1e3);
+        printf("\n*** Speedups ***\n");
+        printf("Cooperative groups GPU: %6.1f times faster then shared memory GPU\n", cudaTime_sm/cudaTime_cg);
+        printf("Cooperative groups GPU: %6.1f times faster then basic GPU\n", cudaTime/cudaTime_cg);
+        printf("Cooperative groups GPU: %6.1f times faster then serial CPU\n", serialTime/cudaTime_cg);
+        printf("     Shared memory GPU: %6.1f times faster then basic GPU\n", cudaTime/cudaTime_sm);
+        printf("     Shared memory GPU: %6.1f times faster then serial CPU\n", serialTime/cudaTime_sm);
+        printf("             Basic GPU: %6.1f times faster then serial CPU\n\n", serialTime/cudaTime);
     }
+    else
+        printf("\n");
 
     freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
     return 0;
