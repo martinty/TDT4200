@@ -273,50 +273,99 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
 }
 
 // GPU cooperative groups - Apply convolutional filter on image data
-__global__ void device_applyFilter_cg(unsigned char *image, unsigned char *process, const int width, const int height, const int Nx, const int Ny, 
+__global__ void device_applyFilter_cg(unsigned char *imageOdd, unsigned char *imageEven, const int width, const int height, const int Nx, const int Ny, 
     const int filterDim, const float filterFactor, const int iterations)
 {
-    //__shared__ unsigned char data_sq[1]; 
-    cg::grid_group grid = cg::this_grid();
-    for (int i = 0; i < iterations; i++)
+    if(BLOCKX*Nx * BLOCKY*Ny < 49152)
+    {   
+        if(blockIdx.x == 0 && threadIdx.x == 0 && blockIdx.y == 0 && threadIdx.y == 0)
+            printf("\n*** Cooperative groups use shared memory for image ***\n");
+        //__shared__ unsigned char data_sq[49152];
+    }
+    else
     {
-        int x = (blockIdx.x * BLOCKX + threadIdx.x) * Nx;
-        int y = (blockIdx.y * BLOCKY + threadIdx.y) * Ny;
-        for(int iy = 0; iy < Ny; iy++)
+        if(blockIdx.x == 0 && threadIdx.x == 0 && blockIdx.y == 0 && threadIdx.y == 0)
+            printf("\n*** Cooperative groups use global memory for image ***\n");
+        cg::grid_group grid = cg::this_grid();
+        const int realX = (blockIdx.x * BLOCKX + threadIdx.x) * Nx;
+        const int realY = (blockIdx.y * BLOCKY + threadIdx.y) * Ny;
+        int x = realX;
+        int y = realY;
+        for (int i = 0; i < iterations; i++)
         {
-            for(int ix = 0; ix < Nx; ix++)
+            if(i%2 == 0)
             {
-                if (x < width && y < height)
+                for(int iy = 0; iy < Ny; iy++)
                 {
-                    const int filterCenter = filterDim / 2;
-                    int aggregate = 0;
-                    for (int ky = 0; ky < filterDim; ky++)
+                    for(int ix = 0; ix < Nx; ix++)
                     {
-                        int nky = filterDim - 1 - ky;
-                        for (int kx = 0; kx < filterDim; kx++)
+                        if (x < width && y < height)
                         {
-                        int nkx = filterDim - 1 - kx;
-                        int yy = y + (ky - filterCenter);
-                        int xx = x + (kx - filterCenter);
-                        if (xx >= 0 && xx < width && yy >= 0 && yy < height)
-                            aggregate += image[xx + yy*width] * constFilterGPU[nky * filterDim + nkx];
+                            const int filterCenter = filterDim / 2;
+                            int aggregate = 0;
+                            for (int ky = 0; ky < filterDim; ky++)
+                            {
+                                int nky = filterDim - 1 - ky;
+                                for (int kx = 0; kx < filterDim; kx++)
+                                {
+                                    int nkx = filterDim - 1 - kx;
+                                    int yy = y + (ky - filterCenter);
+                                    int xx = x + (kx - filterCenter);
+                                    if (xx >= 0 && xx < width && yy >= 0 && yy < height)
+                                        aggregate += imageEven[xx + yy*width] * constFilterGPU[nky * filterDim + nkx];
+                                }
+                            }
+                            aggregate *= filterFactor;
+                            if (aggregate > 0)
+                                imageOdd[x + y*width] = (aggregate > 255) ? 255 : aggregate;
+                            else
+                                imageOdd[x + y*width] = 0;
                         }
+                        x++;
                     }
-                    aggregate *= filterFactor;
-                    if (aggregate > 0)
-                        process[x + y*width] = (aggregate > 255) ? 255 : aggregate;
-                    else
-                        process[x + y*width] = 0;
+                    x = realX;
+                    y++;
                 }
-                x++;
+                y = realY;
+                cg::sync(grid);
             }
-            y++;
+            else
+            {
+                for(int iy = 0; iy < Ny; iy++)
+                {
+                    for(int ix = 0; ix < Nx; ix++)
+                    {
+                        if (x < width && y < height)
+                        {
+                            const int filterCenter = filterDim / 2;
+                            int aggregate = 0;
+                            for (int ky = 0; ky < filterDim; ky++)
+                            {
+                                int nky = filterDim - 1 - ky;
+                                for (int kx = 0; kx < filterDim; kx++)
+                                {
+                                    int nkx = filterDim - 1 - kx;
+                                    int yy = y + (ky - filterCenter);
+                                    int xx = x + (kx - filterCenter);
+                                    if (xx >= 0 && xx < width && yy >= 0 && yy < height)
+                                        aggregate += imageOdd[xx + yy*width] * constFilterGPU[nky * filterDim + nkx];
+                                }
+                            }
+                            aggregate *= filterFactor;
+                            if (aggregate > 0)
+                                imageEven[x + y*width] = (aggregate > 255) ? 255 : aggregate;
+                            else
+                                imageEven[x + y*width] = 0;
+                        }
+                        x++;
+                    }
+                    x = realX;
+                    y++;
+                }
+                y = realY;
+                cg::sync(grid);
+            }    
         }
-        cg::sync(grid);
-        unsigned char *temp = process;
-        *process = *image;
-        *image = *temp;
-        cg::sync(grid);
     }
 }
 
@@ -715,30 +764,38 @@ int main(int argc, char **argv)
     cudaErrorCheck(cudaMalloc((void**)&processImageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char)));
 
     // Copy data from host to device
-    cudaErrorCheck(cudaMemcpy(imageChannelGPU_cg, imageChannel3->rawdata, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyHostToDevice));
+    cudaErrorCheck(cudaMemcpy(imageChannelGPU_cg, imageChannel4->rawdata, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyHostToDevice));
     cudaErrorCheck(cudaMemcpyToSymbol(constFilterGPU, filter, sizeFilter_cg));
 
     // Arguments for CUDA kernel
     void *kernelArgs_cg[] = {
-        (void *)&imageChannelGPU_cg, (void *)&processImageChannelGPU_cg,
+        (void *)&processImageChannelGPU_cg,
+        (void *)&imageChannelGPU_cg, 
         (void *)&sizeX, (void *)&sizeY,
         (void *)&Nx, (void *)&Ny,
         (void *)&filterDim, (void *)&filterFactor,
         (void *)&iterations
     };
-
+    
     // GPU computation
     cudaErrorCheck(cudaLaunchCooperativeKernel(
         (void *)device_applyFilter_cg,
         gridDim_cg, blockDim_cg, 
         kernelArgs_cg,                                      
-        0, 
+        49152, 
         NULL
     ));
     cudaErrorCheck(cudaGetLastError());
 
     // Copy data from device to host
-    cudaErrorCheck(cudaMemcpy(imageChannel4->rawdata, imageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyDeviceToHost));
+    if (iterations % 2 == 0)
+    {
+        cudaErrorCheck(cudaMemcpy(imageChannel4->rawdata, imageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyDeviceToHost));
+    } 
+    else
+    {
+        cudaErrorCheck(cudaMemcpy(imageChannel4->rawdata, processImageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyDeviceToHost));
+    }
 
     // Free the device memory
     cudaErrorCheck(cudaFree(imageChannelGPU_cg));
