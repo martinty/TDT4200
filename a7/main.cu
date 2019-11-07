@@ -12,12 +12,16 @@ extern "C" {
 
 namespace cg = cooperative_groups;
 
-// BLOCKX * BLOCKY can max be 1024 (threads)
-// GRIDX * GRIDY can max be 28 (MSs)
+// GTX 1080 Ti
+// Total threads per BLOCK is 1024
+// Total threads per SM is 2048
+// Total MSs is 28
 #define BLOCKY  32
 #define BLOCKX  32
 #define GRIDX   7
-#define GRIDY   4 
+#define GRIDY   4
+
+#define MAX_SHARED_MEMORY 49152
 
 #define ERROR_EXIT -1
 #define cudaErrorCheck(ans) { gpuAssert((ans), __FILE__, __LINE__); }
@@ -272,101 +276,163 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
         __syncthreads();
 }
 
-// GPU cooperative groups - Apply convolutional filter on image data
-__global__ void device_applyFilter_cg(unsigned char *imageOdd, unsigned char *imageEven, const int width, const int height, const int Nx, const int Ny, 
+// GPU cooperative groups with only global memory - Apply convolutional filter on image data
+__global__ void device_applyFilter_globalMem_cg(unsigned char *imageOdd, unsigned char *imageEven, const int width, const int height, const int Nx, const int Ny, 
     const int filterDim, const float filterFactor, const int iterations)
 {
-    if(BLOCKX*Nx * BLOCKY*Ny < 49152)
-    {   
-        if(blockIdx.x == 0 && threadIdx.x == 0 && blockIdx.y == 0 && threadIdx.y == 0)
-            printf("\n*** Cooperative groups use shared memory for image ***\n");
-        //__shared__ unsigned char data_sq[49152];
-    }
-    else
+    cg::grid_group grid = cg::this_grid();
+    const int realX = (blockIdx.x * BLOCKX + threadIdx.x) * Nx;
+    const int realY = (blockIdx.y * BLOCKY + threadIdx.y) * Ny;
+    int x = realX;
+    int y = realY;
+    for (int i = 0; i < iterations; i++)
     {
-        if(blockIdx.x == 0 && threadIdx.x == 0 && blockIdx.y == 0 && threadIdx.y == 0)
-            printf("\n*** Cooperative groups use global memory for image ***\n");
-        cg::grid_group grid = cg::this_grid();
-        const int realX = (blockIdx.x * BLOCKX + threadIdx.x) * Nx;
-        const int realY = (blockIdx.y * BLOCKY + threadIdx.y) * Ny;
-        int x = realX;
-        int y = realY;
-        for (int i = 0; i < iterations; i++)
+        if(i%2 == 0)
         {
-            if(i%2 == 0)
+            for(int iy = 0; iy < Ny; iy++)
             {
-                for(int iy = 0; iy < Ny; iy++)
+                for(int ix = 0; ix < Nx; ix++)
                 {
-                    for(int ix = 0; ix < Nx; ix++)
+                    if (x < width && y < height)
                     {
-                        if (x < width && y < height)
+                        const int filterCenter = filterDim / 2;
+                        int aggregate = 0;
+                        for (int ky = 0; ky < filterDim; ky++)
                         {
-                            const int filterCenter = filterDim / 2;
-                            int aggregate = 0;
-                            for (int ky = 0; ky < filterDim; ky++)
+                            int nky = filterDim - 1 - ky;
+                            for (int kx = 0; kx < filterDim; kx++)
                             {
-                                int nky = filterDim - 1 - ky;
-                                for (int kx = 0; kx < filterDim; kx++)
-                                {
-                                    int nkx = filterDim - 1 - kx;
-                                    int yy = y + (ky - filterCenter);
-                                    int xx = x + (kx - filterCenter);
-                                    if (xx >= 0 && xx < width && yy >= 0 && yy < height)
-                                        aggregate += imageEven[xx + yy*width] * constFilterGPU[nky * filterDim + nkx];
-                                }
+                                int nkx = filterDim - 1 - kx;
+                                int yy = y + (ky - filterCenter);
+                                int xx = x + (kx - filterCenter);
+                                if (xx >= 0 && xx < width && yy >= 0 && yy < height)
+                                    aggregate += imageEven[xx + yy*width] * constFilterGPU[nky * filterDim + nkx];
                             }
-                            aggregate *= filterFactor;
-                            if (aggregate > 0)
-                                imageOdd[x + y*width] = (aggregate > 255) ? 255 : aggregate;
-                            else
-                                imageOdd[x + y*width] = 0;
                         }
-                        x++;
+                        aggregate *= filterFactor;
+                        if (aggregate > 0)
+                            imageOdd[x + y*width] = (aggregate > 255) ? 255 : aggregate;
+                        else
+                            imageOdd[x + y*width] = 0;
                     }
-                    x = realX;
-                    y++;
+                    x++;
                 }
-                y = realY;
-                cg::sync(grid);
+                x = realX;
+                y++;
             }
-            else
+            y = realY;
+            cg::sync(grid);
+        }
+        else
+        {
+            for(int iy = 0; iy < Ny; iy++)
             {
-                for(int iy = 0; iy < Ny; iy++)
+                for(int ix = 0; ix < Nx; ix++)
                 {
-                    for(int ix = 0; ix < Nx; ix++)
+                    if (x < width && y < height)
                     {
-                        if (x < width && y < height)
+                        const int filterCenter = filterDim / 2;
+                        int aggregate = 0;
+                        for (int ky = 0; ky < filterDim; ky++)
                         {
-                            const int filterCenter = filterDim / 2;
-                            int aggregate = 0;
-                            for (int ky = 0; ky < filterDim; ky++)
+                            int nky = filterDim - 1 - ky;
+                            for (int kx = 0; kx < filterDim; kx++)
                             {
-                                int nky = filterDim - 1 - ky;
-                                for (int kx = 0; kx < filterDim; kx++)
-                                {
-                                    int nkx = filterDim - 1 - kx;
-                                    int yy = y + (ky - filterCenter);
-                                    int xx = x + (kx - filterCenter);
-                                    if (xx >= 0 && xx < width && yy >= 0 && yy < height)
-                                        aggregate += imageOdd[xx + yy*width] * constFilterGPU[nky * filterDim + nkx];
-                                }
+                                int nkx = filterDim - 1 - kx;
+                                int yy = y + (ky - filterCenter);
+                                int xx = x + (kx - filterCenter);
+                                if (xx >= 0 && xx < width && yy >= 0 && yy < height)
+                                    aggregate += imageOdd[xx + yy*width] * constFilterGPU[nky * filterDim + nkx];
                             }
-                            aggregate *= filterFactor;
-                            if (aggregate > 0)
-                                imageEven[x + y*width] = (aggregate > 255) ? 255 : aggregate;
-                            else
-                                imageEven[x + y*width] = 0;
                         }
-                        x++;
+                        aggregate *= filterFactor;
+                        if (aggregate > 0)
+                            imageEven[x + y*width] = (aggregate > 255) ? 255 : aggregate;
+                        else
+                            imageEven[x + y*width] = 0;
                     }
-                    x = realX;
-                    y++;
+                    x++;
                 }
-                y = realY;
-                cg::sync(grid);
-            }    
+                x = realX;
+                y++;
+            }
+            y = realY;
+            cg::sync(grid);
+        }    
+    }
+    
+}
+
+// GPU cooperative groups with shared memory - Apply convolutional filter on image data
+__global__ void device_applyFilter_sharedMem_cg(unsigned char *imageGlobal, const int width, const int height, const int Nx, const int Ny, 
+    const int filterDim, const float filterFactor, const int iterations, const int sharedMemSplit)
+{
+    
+    extern __shared__ unsigned char data_cg[];
+    unsigned char *imageEven = &data_cg[0];
+    unsigned char *imageOdd = &data_cg[sharedMemSplit];
+    cg::grid_group grid = cg::this_grid();
+    
+
+    const int realX = (blockIdx.x * BLOCKX + threadIdx.x) * Nx;
+    const int realY = (blockIdx.y * BLOCKY + threadIdx.y) * Ny;
+    const int x = threadIdx.x;
+    const int y = threadIdx.y;
+
+    for(int iy = 0; iy < Ny; iy++)
+    {
+        for(int ix = 0; ix < Nx; ix++)
+        {
+            if(realX+ix < width && realY+iy < height)
+                imageEven[x*Nx+ix + (y*Ny+iy)*BLOCKX] = imageGlobal[realX+ix + (realY+iy)*width];
         }
     }
+
+    grid.sync();
+
+    for(int iy = 0; iy < Ny; iy++)
+    {
+        for(int ix = 0; ix < Nx; ix++)
+        {
+            const int filterCenter = filterDim / 2;
+            int aggregate = 0;
+            for (int ky = 0; ky < filterDim; ky++)
+            {
+                int nky = filterDim - 1 - ky;
+                for (int kx = 0; kx < filterDim; kx++)
+                {
+                    int nkx = filterDim - 1 - kx;
+                    int yy = y*Ny + iy + (ky - filterCenter);
+                    int xx = x*Nx + ix + (kx - filterCenter);
+                    int yyy = realY + iy + (ky - filterCenter);
+                    int xxx = realY + ix + (kx - filterCenter);
+                    if (xx >= 0 && xxx < width && yy >= 0 && yyy < height)
+                        aggregate += imageEven[xx + yy*BLOCKX] * constFilterGPU[nky * filterDim + nkx];
+                }
+            }
+
+            aggregate *= filterFactor;
+            
+            if (aggregate > 0)
+                imageOdd[x*Nx+ix + (y*Ny+iy)*BLOCKX] = (aggregate > 255) ? 255 : aggregate;
+            else
+                imageOdd[x*Nx+ix + (y*Ny+iy)*BLOCKX] = 0;
+        
+        }
+    }
+
+    grid.sync();
+
+    for(int iy = 0; iy < Ny; iy++)
+    {
+        for(int ix = 0; ix < Nx; ix++)
+        {
+            if(realX+ix < width && realY+iy < height)
+                imageGlobal[realX+ix + (realY+iy)*width] = imageOdd[x*Nx+ix + (y*Ny+iy)*BLOCKX];
+        }
+    }
+    
+    
 }
 
 void help(char const *exec, char const opt, char const *optarg)
@@ -758,52 +824,103 @@ int main(int argc, char **argv)
     const int sizeFilter_cg = filterDim * filterDim * sizeof(int);
     const int Nx = sizeX / (GRIDX * BLOCKX) + offsetGridX;
     const int Ny = sizeY / (GRIDY * BLOCKY) + offsetGridY;
+    const int sharedMemUsage = (BLOCKX+2*(filterDim/2))*Nx * (BLOCKY+2*(filterDim/2))*Ny * 2 * sizeof(unsigned char);
+    const int sharedMemSplit = sharedMemUsage / 2;
+    bool sharedMemoryOn;
+    int numBlocksPerSm;
+    
+    // Check if grid can be active with shared memory 
+    cudaErrorCheck(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, device_applyFilter_sharedMem_cg, BLOCKX*BLOCKY, sharedMemUsage));
+    if ( numBlocksPerSm == 1 && GRIDX*GRIDY <= 28)
+    {
+        printf("\n*** Cooperative groups use shared memory for image ***\n");
+        sharedMemoryOn = true;
+    }
+    else
+    {
+        printf("\n*** Cooperative groups use global memory for image ***\n");
+        sharedMemoryOn = false;
+    }
 
     // Set up device memory
     cudaErrorCheck(cudaMalloc((void**)&imageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char)));
-    cudaErrorCheck(cudaMalloc((void**)&processImageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char)));
+    if(!sharedMemoryOn)
+    {
+        cudaErrorCheck(cudaMalloc((void**)&processImageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char)));
+    }
 
     // Copy data from host to device
     cudaErrorCheck(cudaMemcpy(imageChannelGPU_cg, imageChannel4->rawdata, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyHostToDevice));
     cudaErrorCheck(cudaMemcpyToSymbol(constFilterGPU, filter, sizeFilter_cg));
 
-    // Arguments for CUDA kernel
-    void *kernelArgs_cg[] = {
-        (void *)&processImageChannelGPU_cg,
-        (void *)&imageChannelGPU_cg, 
-        (void *)&sizeX, (void *)&sizeY,
-        (void *)&Nx, (void *)&Ny,
-        (void *)&filterDim, (void *)&filterFactor,
-        (void *)&iterations
-    };
-    
-    // GPU computation
-    cudaErrorCheck(cudaLaunchCooperativeKernel(
-        (void *)device_applyFilter_cg,
-        gridDim_cg, blockDim_cg, 
-        kernelArgs_cg,                                      
-        49152, 
-        NULL
-    ));
-    cudaErrorCheck(cudaGetLastError());
-
-    // Copy data from device to host
-    if (iterations % 2 == 0)
+    if(sharedMemoryOn)
     {
+        // Arguments for CUDA kernel
+        void *kernelArgs_cg[] = {
+            (void *)&imageChannelGPU_cg, 
+            (void *)&sizeX, (void *)&sizeY,
+            (void *)&Nx, (void *)&Ny,
+            (void *)&filterDim, (void *)&filterFactor,
+            (void *)&iterations,
+            (void *)&sharedMemSplit
+        };
+        
+        // GPU computation
+        cudaErrorCheck(cudaLaunchCooperativeKernel(
+            (void *)device_applyFilter_sharedMem_cg,
+            gridDim_cg, blockDim_cg, 
+            kernelArgs_cg,                                      
+            sharedMemUsage, 
+            NULL
+        ));
+        cudaErrorCheck(cudaGetLastError());
+
+        // Copy data from device to host
         cudaErrorCheck(cudaMemcpy(imageChannel4->rawdata, imageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyDeviceToHost));
-    } 
+    }
     else
     {
-        cudaErrorCheck(cudaMemcpy(imageChannel4->rawdata, processImageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyDeviceToHost));
+        // Arguments for CUDA kernel
+        void *kernelArgs_cg[] = {
+            (void *)&processImageChannelGPU_cg,
+            (void *)&imageChannelGPU_cg, 
+            (void *)&sizeX, (void *)&sizeY,
+            (void *)&Nx, (void *)&Ny,
+            (void *)&filterDim, (void *)&filterFactor,
+            (void *)&iterations,
+        };
+        
+        // GPU computation
+        cudaErrorCheck(cudaLaunchCooperativeKernel(
+            (void *)device_applyFilter_globalMem_cg,
+            gridDim_cg, blockDim_cg, 
+            kernelArgs_cg,                                      
+            0, 
+            NULL
+        ));
+        cudaErrorCheck(cudaGetLastError());
+
+        // Copy data from device to host
+        if (iterations % 2 == 0)
+        {
+            cudaErrorCheck(cudaMemcpy(imageChannel4->rawdata, imageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyDeviceToHost));
+        } 
+        else
+        {
+            cudaErrorCheck(cudaMemcpy(imageChannel4->rawdata, processImageChannelGPU_cg, sizeX*sizeY * sizeof(unsigned char), cudaMemcpyDeviceToHost));
+        }
     }
 
     // Free the device memory
     cudaErrorCheck(cudaFree(imageChannelGPU_cg));
-    cudaErrorCheck(cudaFree(processImageChannelGPU_cg));
+    if(!sharedMemoryOn)
+    {
+        cudaErrorCheck(cudaFree(processImageChannelGPU_cg));
+    }
     
     cudaTime_cg = walltime() - startTime;
     //********************************* GPU cooperative groups work stop ****************************
-
+    
     if (test)
     {
         // Check if GPU image channel is equal to CPU image channel
@@ -830,6 +947,24 @@ int main(int argc, char **argv)
         freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
         return ERROR_EXIT;
     };
+
+    // Print some useful info about GPU device
+    if(test)
+    {
+        cudaDeviceProp deviceProp;
+        cudaGetDeviceProperties(&deviceProp, 0);
+        printf("\nDevice %d: \"%s\"\n", 0, deviceProp.name);
+        printf("  Total amount of constant memory:               %lu bytes\n", deviceProp.totalConstMem);
+        printf("  Total amount of shared memory per block:       %lu bytes\n", deviceProp.sharedMemPerBlock);
+        printf("  Total number of registers available per block: %d\n", deviceProp.regsPerBlock);
+        printf("  Maximum number of threads per multiprocessor:  %d\n", deviceProp.maxThreadsPerMultiProcessor);
+        printf("  Maximum number of threads per block:           %d\n", deviceProp.maxThreadsPerBlock);
+        printf("Shared memory usage per block: %d bytes\n", sharedMemUsage);
+        printf("SM: %d\n", deviceProp.multiProcessorCount);
+        printf("Number of blocks per SM: %d\n", numBlocksPerSm);
+        printf("Nx: %d\n", Nx);
+        printf("Ny: %d\n", Ny);
+    }
 
     printf("\n*** Run times ***\n");
     printf("Running with %d iteration(s)\n", iterations);
