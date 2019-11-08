@@ -12,8 +12,8 @@ extern "C" {
 
 namespace cg = cooperative_groups;
 
-#define BLOCKX  24
-#define BLOCKY  16
+#define BLOCKX  32
+#define BLOCKY  32
 #define GRIDX   8
 #define GRIDY   7
 
@@ -279,9 +279,9 @@ __global__ void device_applyFilter_globalMem_cg(unsigned char *imageOdd, unsigne
     const int globalY = (blockIdx.y * BLOCKY + threadIdx.y) * Ny;
     int x = globalX;
     int y = globalY;
-    for (int i = 0; i < iterations; i++)
+    for (int i = 1; i <= iterations; i++)
     {
-        if(i%2 == 0)
+        if(i%2 > 0)
         {
             for(int iy = 0; iy < Ny; iy++)
             {
@@ -357,7 +357,7 @@ __global__ void device_applyFilter_globalMem_cg(unsigned char *imageOdd, unsigne
     
 }
 
-// GPU cooperative groups with shared memory - Apply convolutional filter on image data
+// GPU cooperative groups with shared and global memory - Apply convolutional filter on image data
 __global__ void device_applyFilter_sharedMem_cg(unsigned char *imageGlobal, const int width, const int height, const int Nx, const int Ny, 
     const int filterDim, const float filterFactor, const int iterations, const int sharedMemSplit)
 {
@@ -378,9 +378,9 @@ __global__ void device_applyFilter_sharedMem_cg(unsigned char *imageGlobal, cons
         }
     }
     grid.sync();
-    for(int i = 0; i < iterations; i++)
+    for(int i = 1; i <= iterations; i++)
     {
-        if( i%2 == 0)
+        if( i%2 > 0)
         {
             for(int iy = 0; iy < Ny; iy++)
             {
@@ -718,49 +718,50 @@ int main(int argc, char **argv)
             freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
             return ERROR_EXIT;
         }
-    }
+    
 
-    // Create a single color channel image for GPU basic code
-    imageChannel2 = newBmpImageChannel(sizeX, sizeY);
-    if (imageChannel2 == NULL)
-    {
-        fprintf(stderr, "Could not allocate new image channel 2!\n");
-        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
-        return ERROR_EXIT;
-    }
-    if (extractImageChannel(imageChannel2, image, extractAverage) != 0)
-    {
-        fprintf(stderr, "Could not extract image channel 2!\n");
-        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
-        return ERROR_EXIT;
-    }
+        // Create a single color channel image for GPU basic code
+        imageChannel2 = newBmpImageChannel(sizeX, sizeY);
+        if (imageChannel2 == NULL)
+        {
+            fprintf(stderr, "Could not allocate new image channel 2!\n");
+            freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
+            return ERROR_EXIT;
+        }
+        if (extractImageChannel(imageChannel2, image, extractAverage) != 0)
+        {
+            fprintf(stderr, "Could not extract image channel 2!\n");
+            freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
+            return ERROR_EXIT;
+        }
 
-    // Create a single color channel image for GPU shared memory code
-    imageChannel3 = newBmpImageChannel(sizeX, sizeY);
-    if (imageChannel3 == NULL)
-    {
-        fprintf(stderr, "Could not allocate new image channel 2!\n");
-        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
-        return ERROR_EXIT;
-    }
-    if (extractImageChannel(imageChannel3, image, extractAverage) != 0)
-    {
-        fprintf(stderr, "Could not extract image channel 2!\n");
-        freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
-        return ERROR_EXIT;
+        // Create a single color channel image for GPU shared memory code
+        imageChannel3 = newBmpImageChannel(sizeX, sizeY);
+        if (imageChannel3 == NULL)
+        {
+            fprintf(stderr, "Could not allocate new image channel 3!\n");
+            freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
+            return ERROR_EXIT;
+        }
+        if (extractImageChannel(imageChannel3, image, extractAverage) != 0)
+        {
+            fprintf(stderr, "Could not extract image channel 3!\n");
+            freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
+            return ERROR_EXIT;
+        }
     }
 
     // Create a single color channel image for GPU cooperative groups code
     imageChannel4 = newBmpImageChannel(sizeX, sizeY);
-    if (imageChannel3 == NULL)
+    if (imageChannel4 == NULL)
     {
-        fprintf(stderr, "Could not allocate new image channel 2!\n");
+        fprintf(stderr, "Could not allocate new image channel 4!\n");
         freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
         return ERROR_EXIT;
     }
     if (extractImageChannel(imageChannel4, image, extractAverage) != 0)
     {
-        fprintf(stderr, "Could not extract image channel 2!\n");
+        fprintf(stderr, "Could not extract image channel 4!\n");
         freeMemory(output, input, image, imageChannel1, imageChannel2, imageChannel3, imageChannel4);
         return ERROR_EXIT;
     }
