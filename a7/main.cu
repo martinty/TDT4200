@@ -12,8 +12,8 @@ extern "C" {
 
 namespace cg = cooperative_groups;
 
-#define BLOCKX  32
-#define BLOCKY  32
+#define BLOCKX  24
+#define BLOCKY  16
 #define GRIDX   8
 #define GRIDY   7
 
