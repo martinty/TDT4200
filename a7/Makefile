@@ -10,13 +10,16 @@ all: main
 main:
 	nvcc $(NVCCFLAGS) libs/bitmap.c main.cu -o main.out 
 
-.PHONY: run test debug help clean
+.PHONY: run test time debug help clean
 
 run: main
 	./main.out $(IMAGE) $(OUTPUT) -i $(I)
 
 test: main
 	./main.out $(IMAGE) $(OUTPUT) -t -i $(I)
+
+time: main
+	/usr/bin/time ./main.out $(IMAGE) $(OUTPUT) -i $(I)
 
 debug:
 	nvcc $(NVCCFLAGS) $(DEBUGFLAGS) libs/bitmap.c main.cu -o main.out 
