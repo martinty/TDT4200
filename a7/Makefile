@@ -1,7 +1,7 @@
 PATH += :/usr/local/cuda/bin
 I = 1
 NVCCFLAGS += -arch=sm_61 -rdc=true -O3 -lm
-DEBUGFLAGS += -lineinfo
+DEBUGFLAGS += -lineinfo -Xptxas="-v"
 IMAGE = before.bmp
 OUTPUT = after.bmp
 
@@ -23,7 +23,7 @@ time: main
 
 debug:
 	nvcc $(NVCCFLAGS) $(DEBUGFLAGS) libs/bitmap.c main.cu -o main.out 
-	cuda-memcheck ./main.out $(IMAGE) $(OUTPUT) -i $(I) |more
+	cuda-memcheck ./main.out $(IMAGE) $(OUTPUT) -t -i $(I) |more
 
 help: main
 	./main.out -h
