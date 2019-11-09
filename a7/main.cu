@@ -13,7 +13,7 @@ extern "C" {
 namespace cg = cooperative_groups;
 
 #define BLOCKX  24
-#define BLOCKY  16
+#define BLOCKY  20
 #define GRIDX   8
 #define GRIDY   7
 
@@ -380,8 +380,8 @@ __global__ void device_applyFilter_sharedMem_cg(unsigned char *imageGlobal, cons
     grid.sync();
     for(int i = 1; i <= iterations; i++)
     {
-        if( i%2 > 0)
-        {
+        //if( i%2 > 0)
+        //{
             for(int iy = 0; iy < Ny; iy++)
             {
                 for(int ix = 0; ix < Nx; ix++)
@@ -437,7 +437,12 @@ __global__ void device_applyFilter_sharedMem_cg(unsigned char *imageGlobal, cons
                 }
             }
             grid.sync();
-        }
+            unsigned char *temp = imageEven;
+            imageEven = imageOdd;
+            imageOdd = temp;
+            grid.sync();
+        //}
+        /*
         else
         {
             for(int iy = 0; iy < Ny; iy++)
@@ -495,8 +500,10 @@ __global__ void device_applyFilter_sharedMem_cg(unsigned char *imageGlobal, cons
                 }
             }
             grid.sync();
-        }
+            */
+       // }
     }
+    /*
     if( iterations%2 > 0)
     {    
         for(int iy = 0; iy < Ny; iy++)
@@ -510,6 +517,7 @@ __global__ void device_applyFilter_sharedMem_cg(unsigned char *imageGlobal, cons
     }
     else
     {
+        */
         for(int iy = 0; iy < Ny; iy++)
         {
             for(int ix = 0; ix < Nx; ix++)
@@ -518,7 +526,7 @@ __global__ void device_applyFilter_sharedMem_cg(unsigned char *imageGlobal, cons
                     imageGlobal[globalX+ix + (globalY+iy)*width] = imageEven[x+ix + (y+iy)*BLOCKX*Nx];
             }
         }
-    }
+    //}
 }
 
 void help(char const *exec, char const opt, char const *optarg)
