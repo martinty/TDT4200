@@ -12,8 +12,8 @@ extern "C" {
 
 namespace cg = cooperative_groups;
 
-#define BLOCKX  24
-#define BLOCKY  20
+#define BLOCKX  24 //24 or 32
+#define BLOCKY  20 //20 or 32
 #define GRIDX   8
 #define GRIDY   7
 
@@ -76,8 +76,9 @@ float const gaussianFilterFactor = (float)1.0 / 256.0;
 */
 
 // CPU serial - Apply convolutional filter on image data
-void applyFilter(unsigned char **out, unsigned char **in, const int width, const int height, 
-                 const int *filter, const int filterDim, const float filterFactor)
+void applyFilter(
+    unsigned char **out, unsigned char **in, const int width, const int height, 
+    const int *filter, const int filterDim, const float filterFactor)
 {
     const int filterCenter = filterDim / 2;
     for (int y = 0; y < height; y++)
@@ -108,8 +109,9 @@ void applyFilter(unsigned char **out, unsigned char **in, const int width, const
 }
 
 // GPU basic - Apply convolutional filter on image data
-__global__ void device_applyFilter(unsigned char *out, const unsigned char *in, const int width, const int height, 
-                                   const int *filter, const int filterDim, const float filterFactor)
+__global__ void device_applyFilter(
+    unsigned char *out, const unsigned char *in, const int width, const int height, 
+    const int *filter, const int filterDim, const float filterFactor)
 {
     const int x = blockIdx.x * BLOCKX + threadIdx.x;
     const int y = blockIdx.y * BLOCKY + threadIdx.y;
@@ -138,28 +140,26 @@ __global__ void device_applyFilter(unsigned char *out, const unsigned char *in, 
 }
 
 // GPU shared memory - Apply convolutional filter on image data
-__global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *in, const int width, const int height, const int N, 
-                                      const int *filter, const int filterDim, const float filterFactor)
+__global__ void device_applyFilter_sm(
+    unsigned char *out, const unsigned char *in, const int width, const int height, const int N, 
+    const int *filter, const int filterDim, const float filterFactor)
 {
     extern __shared__ unsigned char data_sm[];
     int *filter_sm = (int*)&data_sm[N];
     const int x = blockIdx.x * BLOCKX + threadIdx.x;
     const int y = blockIdx.y * BLOCKY + threadIdx.y;
-    const int xLocal = threadIdx.x;
-    const int yLocal = threadIdx.y;
+    const int localX = threadIdx.x;
+    const int localY = threadIdx.y;
     const int filterCenter = (filterDim / 2);
-
-    if(xLocal == 1 && yLocal == 1)
+    if(localX == 1 && localY == 1)
     {
         for (int i = 0; i < filterDim*filterDim; i++)
             filter_sm[i] = filter[i];
     }
-
     if (x < width && y < height)
     {
         // Tranfer center to shared memory
-        data_sm[(xLocal+filterCenter) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = in[x + y*width];
-        
+        data_sm[(localX+filterCenter) + (localY+filterCenter)*(BLOCKX+filterCenter*2)] = in[x + y*width];
         // Transfer west border to shared memory
         if(threadIdx.x == 0)
         {
@@ -170,17 +170,16 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
                     for(int j = 0; j <= filterCenter; j++)
                     {
                         if(x - i >= 0 && y - j >= 0)
-                            data_sm[(xLocal+filterCenter-i) + (yLocal+filterCenter-j)*(BLOCKX+filterCenter*2)] = in[x-i + (y-j)*width];
+                            data_sm[(localX+filterCenter-i) + (localY+filterCenter-j)*(BLOCKX+filterCenter*2)] = in[x-i + (y-j)*width];
                     }
                 }
                 else
                 {
                     if(x - i >= 0)
-                        data_sm[(xLocal+filterCenter-i) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = in[x-i + y*width];
+                        data_sm[(localX+filterCenter-i) + (localY+filterCenter)*(BLOCKX+filterCenter*2)] = in[x-i + y*width];
                 }
             }
         }
-        
         // Transfer north border to shared memory
         if(threadIdx.y == 0)
         {
@@ -191,17 +190,16 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
                     for(int j = 0; j <= filterCenter; j++)
                     {
                         if(x + j < width && y - i >= 0)
-                            data_sm[(xLocal+filterCenter+j) + (yLocal+filterCenter-i)*(BLOCKX+filterCenter*2)] = in[x+j + (y-i)*width];
+                            data_sm[(localX+filterCenter+j) + (localY+filterCenter-i)*(BLOCKX+filterCenter*2)] = in[x+j + (y-i)*width];
                     }
                 }
                 else
                 {
                     if(y - i >= 0)
-                        data_sm[(xLocal+filterCenter) + (yLocal+filterCenter-i)*(BLOCKX+filterCenter*2)] = in[x + (y-i)*width];
+                        data_sm[(localX+filterCenter) + (localY+filterCenter-i)*(BLOCKX+filterCenter*2)] = in[x + (y-i)*width];
                 }
             }
         }
-        
         // Transfer east border to shared memory
         if(threadIdx.x == BLOCKX-1)
         {
@@ -212,17 +210,16 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
                     for(int j = 0; j <= filterCenter; j++)
                     {
                         if(x + i < width && y + j < height)
-                            data_sm[(xLocal+filterCenter+i) + (yLocal+filterCenter+j)*(BLOCKX+filterCenter*2)] = in[x+i + (y+j)*width];
+                            data_sm[(localX+filterCenter+i) + (localY+filterCenter+j)*(BLOCKX+filterCenter*2)] = in[x+i + (y+j)*width];
                     }
                 }
                 else
                 {
                     if(x + i < width)
-                        data_sm[(xLocal+filterCenter+i) + (yLocal+filterCenter)*(BLOCKX+filterCenter*2)] = in[x+i + y*width];
+                        data_sm[(localX+filterCenter+i) + (localY+filterCenter)*(BLOCKX+filterCenter*2)] = in[x+i + y*width];
                 }
             }
         }
-        
         // Transfer south border to shared memory
         if(threadIdx.y == BLOCKY-1)
         {
@@ -233,17 +230,16 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
                     for(int j = 0; j <= filterCenter; j++)
                     {
                         if(x - j >= 0 && y + i < height)
-                            data_sm[(xLocal+filterCenter-j) + (yLocal+filterCenter+i)*(BLOCKX+filterCenter*2)] = in[x-j + (y+i)*width];
+                            data_sm[(localX+filterCenter-j) + (localY+filterCenter+i)*(BLOCKX+filterCenter*2)] = in[x-j + (y+i)*width];
                     }
                 }
                 else
                 {
                     if(y + i < height)
-                        data_sm[(xLocal+filterCenter) + (yLocal+filterCenter+i)*(BLOCKX+filterCenter*2)] = in[x + (y+i)*width];
+                        data_sm[(localX+filterCenter) + (localY+filterCenter+i)*(BLOCKX+filterCenter*2)] = in[x + (y+i)*width];
                 }
             }
         }
-
         __syncthreads();
         int aggregate = 0;
         for (int ky = 0; ky < filterDim; ky++)
@@ -252,8 +248,8 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
             for (int kx = 0; kx < filterDim; kx++)
             {
                 int nkx = filterDim - 1 - kx;
-                int yy = yLocal + ky;
-                int xx = xLocal + kx;
+                int yy = localY + ky;
+                int xx = localX + kx;
                 int yyy = y + (ky - filterCenter);
                 int xxx = x + (kx - filterCenter);
                 if (xxx >= 0 && xxx < width && yyy >= 0 && yyy < height)
@@ -271,14 +267,13 @@ __global__ void device_applyFilter_sm(unsigned char *out, const unsigned char *i
 }
 
 // GPU cooperative groups with only global memory - Apply convolutional filter on image data
-__global__ void device_applyFilter_globalMem_cg(unsigned char *imageOdd, unsigned char *imageEven, const int width, const int height, const int Nx, const int Ny, 
+__global__ void device_applyFilter_globalMem_cg(
+    unsigned char *imageProcess, unsigned char *imageGlobal, const int width, const int height, const int Nx, const int Ny, 
     const int filterDim, const float filterFactor, const int iterations)
 {
     cg::grid_group grid = cg::this_grid();
     const int globalX = (blockIdx.x * BLOCKX + threadIdx.x) * Nx;
     const int globalY = (blockIdx.y * BLOCKY + threadIdx.y) * Ny;
-    int x = globalX;
-    int y = globalY;
     for (int i = 1; i <= iterations; i++)
     {
         if(i%2 > 0)
@@ -287,7 +282,7 @@ __global__ void device_applyFilter_globalMem_cg(unsigned char *imageOdd, unsigne
             {
                 for(int ix = 0; ix < Nx; ix++)
                 {
-                    if (x < width && y < height)
+                    if (globalX + ix < width && globalY + iy < height)
                     {
                         const int filterCenter = filterDim / 2;
                         int aggregate = 0;
@@ -297,25 +292,21 @@ __global__ void device_applyFilter_globalMem_cg(unsigned char *imageOdd, unsigne
                             for (int kx = 0; kx < filterDim; kx++)
                             {
                                 int nkx = filterDim - 1 - kx;
-                                int yy = y + (ky - filterCenter);
-                                int xx = x + (kx - filterCenter);
+                                int yy = globalY + iy + (ky - filterCenter);
+                                int xx = globalX + ix + (kx - filterCenter);
                                 if (xx >= 0 && xx < width && yy >= 0 && yy < height)
-                                    aggregate += imageEven[xx + yy*width] * constFilterGPU[nky * filterDim + nkx];
+                                    aggregate += imageGlobal[xx + yy*width] * constFilterGPU[nky * filterDim + nkx];
                             }
                         }
                         aggregate *= filterFactor;
                         if (aggregate > 0)
-                            imageOdd[x + y*width] = (aggregate > 255) ? 255 : aggregate;
+                            imageProcess[globalX + ix + (globalY + iy)*width] = (aggregate > 255) ? 255 : aggregate;
                         else
-                            imageOdd[x + y*width] = 0;
+                            imageProcess[globalX + ix + (globalY + iy)*width] = 0;
                     }
-                    x++;
                 }
-                x = globalX;
-                y++;
             }
-            y = globalY;
-            cg::sync(grid);
+            grid.sync();
         }
         else
         {
@@ -323,7 +314,7 @@ __global__ void device_applyFilter_globalMem_cg(unsigned char *imageOdd, unsigne
             {
                 for(int ix = 0; ix < Nx; ix++)
                 {
-                    if (x < width && y < height)
+                    if (globalX + ix < width && globalY + iy < height)
                     {
                         const int filterCenter = filterDim / 2;
                         int aggregate = 0;
@@ -333,38 +324,35 @@ __global__ void device_applyFilter_globalMem_cg(unsigned char *imageOdd, unsigne
                             for (int kx = 0; kx < filterDim; kx++)
                             {
                                 int nkx = filterDim - 1 - kx;
-                                int yy = y + (ky - filterCenter);
-                                int xx = x + (kx - filterCenter);
+                                int yy = globalY + iy + (ky - filterCenter);
+                                int xx = globalX + ix + (kx - filterCenter);
                                 if (xx >= 0 && xx < width && yy >= 0 && yy < height)
-                                    aggregate += imageOdd[xx + yy*width] * constFilterGPU[nky * filterDim + nkx];
+                                    aggregate += imageProcess[xx + yy*width] * constFilterGPU[nky * filterDim + nkx];
                             }
                         }
                         aggregate *= filterFactor;
                         if (aggregate > 0)
-                            imageEven[x + y*width] = (aggregate > 255) ? 255 : aggregate;
+                            imageGlobal[globalX + ix + (globalY + iy)*width] = (aggregate > 255) ? 255 : aggregate;
                         else
-                            imageEven[x + y*width] = 0;
+                            imageGlobal[globalX + ix + (globalY + iy)*width] = 0;
                     }
-                    x++;
                 }
-                x = globalX;
-                y++;
             }
-            y = globalY;
-            cg::sync(grid);
-        }    
+            grid.sync();
+        }  
     }
-    
 }
 
 // GPU cooperative groups with shared and global memory - Apply convolutional filter on image data
-__global__ void device_applyFilter_sharedMem_cg(unsigned char *imageGlobal, const int width, const int height, const int Nx, const int Ny, 
+__global__ void device_applyFilter_sharedMem_cg(
+    unsigned char *imageGlobal, const int width, const int height, const int Nx, const int Ny, 
     const int filterDim, const float filterFactor, const int iterations, const int sharedMemSplit)
 {
     extern __shared__ unsigned char data_cg[];
-    unsigned char *imageEven = &data_cg[0];
-    unsigned char *imageOdd = &data_cg[sharedMemSplit];
+    unsigned char *imageLocal = &data_cg[0];
+    unsigned char *imageProcess = &data_cg[sharedMemSplit];
     cg::grid_group grid = cg::this_grid();
+    cg::thread_block block = cg::this_thread_block();
     const int globalX = (blockIdx.x * BLOCKX + threadIdx.x) * Nx;  
     const int globalY = (blockIdx.y * BLOCKY + threadIdx.y) * Ny;
     const int x = threadIdx.x * Nx;
@@ -374,159 +362,79 @@ __global__ void device_applyFilter_sharedMem_cg(unsigned char *imageGlobal, cons
         for(int ix = 0; ix < Nx; ix++)
         {
             if(globalX+ix < width && globalY+iy < height)
-                imageEven[x+ix + (y+iy)*BLOCKX*Nx] = imageGlobal[globalX+ix + (globalY+iy)*width];
+                imageLocal[x+ix + (y+iy)*BLOCKX*Nx] = imageGlobal[globalX+ix + (globalY+iy)*width];
         }
     }
-    grid.sync();
+    block.sync();
     for(int i = 1; i <= iterations; i++)
     {
-        //if( i%2 > 0)
-        //{
-            for(int iy = 0; iy < Ny; iy++)
-            {
-                for(int ix = 0; ix < Nx; ix++)
-                {
-                    if(globalX+ix < width && globalY+iy < height)
-                    {
-                        const int filterCenter = filterDim / 2;
-                        int aggregate = 0;
-                        for (int ky = 0; ky < filterDim; ky++)
-                        {
-                            int nky = filterDim - 1 - ky;
-                            for (int kx = 0; kx < filterDim; kx++)
-                            {
-                                int nkx = filterDim - 1 - kx;
-                                int yy = y + iy + (ky - filterCenter);
-                                int xx = x + ix + (kx - filterCenter);
-                                int yyy = globalY + iy + (ky - filterCenter);
-                                int xxx = globalX + ix + (kx - filterCenter);
-                                if (xx >= 0 && xx < BLOCKX*Nx && yy >= 0 && yy < BLOCKY*Ny && xxx < width && yyy < height)
-                                    aggregate += imageEven[xx + yy*BLOCKX*Nx] * constFilterGPU[nky * filterDim + nkx];
-                                else
-                                {    
-                                    if (xxx >= 0 && xxx < width && yyy >= 0 && yyy < height)
-                                    aggregate += imageGlobal[xxx + yyy*width] * constFilterGPU[nky * filterDim + nkx];
-
-                                }
-                            }
-                        }
-                        aggregate *= filterFactor;
-                        if (aggregate > 0)
-                            imageOdd[x+ix + (y+iy)*BLOCKX*Nx] = (aggregate > 255) ? 255 : aggregate;
-                        else
-                            imageOdd[x+ix + (y+iy)*BLOCKX*Nx] = 0;
-                    }
-                }
-            }
-            grid.sync();
-            for(int iy = 0; iy < Ny; iy++)
-            {
-                for(int ix = 0; ix < Nx; ix++)
-                {
-                    if(globalX+ix < width && globalY+iy < height)
-                    {
-                        if (x == 0)
-                            imageGlobal[globalX + (globalY+iy)*width] = imageOdd[x + (y+iy)*BLOCKX*Nx];
-                        if (y == 0)
-                            imageGlobal[globalX+ix + globalY*width] = imageOdd[x+ix + y*BLOCKX*Nx];
-                        if (x == (BLOCKX-1)*Nx)
-                            imageGlobal[globalX+Nx-1 + (globalY+iy)*width] = imageOdd[x+Nx-1 + (y+iy)*BLOCKX*Nx];
-                        if (y == (BLOCKY-1)*Ny)
-                            imageGlobal[globalX+ix + (globalY+Ny-1)*width] = imageOdd[x+ix + (y+Ny-1)*BLOCKX*Nx];
-                    }
-                }
-            }
-            grid.sync();
-            unsigned char *temp = imageEven;
-            imageEven = imageOdd;
-            imageOdd = temp;
-            grid.sync();
-        //}
-        /*
-        else
-        {
-            for(int iy = 0; iy < Ny; iy++)
-            {
-                for(int ix = 0; ix < Nx; ix++)
-                {
-                    if(globalX+ix < width && globalY+iy < height)
-                    {
-                        const int filterCenter = filterDim / 2;
-                        int aggregate = 0;
-                        for (int ky = 0; ky < filterDim; ky++)
-                        {
-                            int nky = filterDim - 1 - ky;
-                            for (int kx = 0; kx < filterDim; kx++)
-                            {
-                                int nkx = filterDim - 1 - kx;
-                                int yy = y + iy + (ky - filterCenter);
-                                int xx = x + ix + (kx - filterCenter);
-                                int yyy = globalY + iy + (ky - filterCenter);
-                                int xxx = globalX + ix + (kx - filterCenter);
-                                if (xx >= 0 && xx < BLOCKX*Nx && yy >= 0 && yy < BLOCKY*Ny && xxx < width && yyy < height)
-                                    aggregate += imageOdd[xx + yy*BLOCKX*Nx] * constFilterGPU[nky * filterDim + nkx];
-                                else
-                                {    
-                                    if (xxx >= 0 && xxx < width && yyy >= 0 && yyy < height)
-                                    aggregate += imageGlobal[xxx + yyy*width] * constFilterGPU[nky * filterDim + nkx];
-
-                                }
-                            }
-                        }
-                        aggregate *= filterFactor;
-                        if (aggregate > 0)
-                            imageEven[x+ix + (y+iy)*BLOCKX*Nx] = (aggregate > 255) ? 255 : aggregate;
-                        else
-                            imageEven[x+ix + (y+iy)*BLOCKX*Nx] = 0;
-                    }
-                }
-            }
-            grid.sync();
-            for(int iy = 0; iy < Ny; iy++)
-            {
-                for(int ix = 0; ix < Nx; ix++)
-                {
-                    if(globalX+ix < width && globalY+iy < height)
-                    {
-                        if (x == 0)
-                            imageGlobal[globalX + (globalY+iy)*width] = imageEven[x + (y+iy)*BLOCKX*Nx];
-                        if (y == 0)
-                            imageGlobal[globalX+ix + globalY*width] = imageEven[x+ix + y*BLOCKX*Nx];
-                        if (x == (BLOCKX-1)*Nx)
-                            imageGlobal[globalX+Nx-1 + (globalY+iy)*width] = imageEven[x+Nx-1 + (y+iy)*BLOCKX*Nx];
-                        if (y == (BLOCKY-1)*Ny)
-                            imageGlobal[globalX+ix + (globalY+Ny-1)*width] = imageEven[x+ix + (y+Ny-1)*BLOCKX*Nx];
-                    }
-                }
-            }
-            grid.sync();
-            */
-       // }
-    }
-    /*
-    if( iterations%2 > 0)
-    {    
         for(int iy = 0; iy < Ny; iy++)
         {
             for(int ix = 0; ix < Nx; ix++)
             {
                 if(globalX+ix < width && globalY+iy < height)
-                    imageGlobal[globalX+ix + (globalY+iy)*width] = imageOdd[x+ix + (y+iy)*BLOCKX*Nx];
+                {
+                    const int filterCenter = filterDim / 2;
+                    int aggregate = 0;
+                    for (int ky = 0; ky < filterDim; ky++)
+                    {
+                        int nky = filterDim - 1 - ky;
+                        for (int kx = 0; kx < filterDim; kx++)
+                        {
+                            int nkx = filterDim - 1 - kx;
+                            int yy = y + iy + (ky - filterCenter);
+                            int xx = x + ix + (kx - filterCenter);
+                            int yyy = globalY + iy + (ky - filterCenter);
+                            int xxx = globalX + ix + (kx - filterCenter);
+                            if (xx >= 0 && xx < BLOCKX*Nx && yy >= 0 && yy < BLOCKY*Ny && xxx < width && yyy < height)
+                                aggregate += imageLocal[xx + yy*BLOCKX*Nx] * constFilterGPU[nky * filterDim + nkx];
+                            else
+                            {    
+                                if (xxx >= 0 && xxx < width && yyy >= 0 && yyy < height)
+                                aggregate += imageGlobal[xxx + yyy*width] * constFilterGPU[nky * filterDim + nkx];
+
+                            }
+                        }
+                    }
+                    aggregate *= filterFactor;
+                    if (aggregate > 0)
+                        imageProcess[x+ix + (y+iy)*BLOCKX*Nx] = (aggregate > 255) ? 255 : aggregate;
+                    else
+                        imageProcess[x+ix + (y+iy)*BLOCKX*Nx] = 0;
+                }
             }
         }
+        grid.sync();
+        for(int iy = 0; iy < Ny; iy++)
+        {
+            for(int ix = 0; ix < Nx; ix++)
+            {
+                if(globalX+ix < width && globalY+iy < height)
+                {
+                    if (x == 0)
+                        imageGlobal[globalX + (globalY+iy)*width] = imageProcess[x + (y+iy)*BLOCKX*Nx];
+                    if (y == 0)
+                        imageGlobal[globalX+ix + globalY*width] = imageProcess[x+ix + y*BLOCKX*Nx];
+                    if (x == (BLOCKX-1)*Nx)
+                        imageGlobal[globalX+Nx-1 + (globalY+iy)*width] = imageProcess[x+Nx-1 + (y+iy)*BLOCKX*Nx];
+                    if (y == (BLOCKY-1)*Ny)
+                        imageGlobal[globalX+ix + (globalY+Ny-1)*width] = imageProcess[x+ix + (y+Ny-1)*BLOCKX*Nx];
+                }
+            }
+        }
+        grid.sync(); 
+        unsigned char *temp = imageLocal;
+        imageLocal = imageProcess;
+        imageProcess = temp;
     }
-    else
+    for(int iy = 0; iy < Ny; iy++)
     {
-        */
-        for(int iy = 0; iy < Ny; iy++)
+        for(int ix = 0; ix < Nx; ix++)
         {
-            for(int ix = 0; ix < Nx; ix++)
-            {
-                if(globalX+ix < width && globalY+iy < height)
-                    imageGlobal[globalX+ix + (globalY+iy)*width] = imageEven[x+ix + (y+iy)*BLOCKX*Nx];
-            }
+            if(globalX+ix < width && globalY+iy < height)
+                imageGlobal[globalX+ix + (globalY+iy)*width] = imageLocal[x+ix + (y+iy)*BLOCKX*Nx];
         }
-    //}
+    }
 }
 
 void help(char const *exec, char const opt, char const *optarg)
@@ -576,13 +484,6 @@ int isImageChannelEqual(unsigned char **a, unsigned char **b, const int sizeX, c
     if(errors > 0)
         printf("Ch %d: %d errors!\n", ch, errors);
     return errors;
-}
-
-int getNumberOfSM(int devID)
-{
-    cudaDeviceProp deviceProp;
-    cudaErrorCheck(cudaGetDeviceProperties(&deviceProp, devID));
-    return deviceProp.multiProcessorCount;
 }
 
 void freeMemory(char *output, char *input, bmpImage *image, 
@@ -696,7 +597,7 @@ int main(int argc, char **argv)
     const int sizeX = image->width;
     const int sizeY = image->height;
 
-    // Offset for BLOCK/GRID size sent to the cuda kernel
+    // Offset for BLOCK and GRID size sent to the cuda kernel
     int offsetBlockX = 0;
     int offsetBlockY = 0;
     int offsetGridX = 0;
