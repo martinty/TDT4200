@@ -11,11 +11,25 @@ extern "C" {
 }
 
 namespace cg = cooperative_groups;
+                   
+#define CG_GLOBAL_MEMORY 0
 
-#define BLOCKX  24 //24 or 32
-#define BLOCKY  20 //20 or 32
-#define GRIDX   8
-#define GRIDY   7
+#if CG_GLOBAL_MEMORY == 1
+    #define BLOCKX  32
+    #define BLOCKY  32
+    #define GRIDX   28
+    #define GRIDY   2  
+#elif CG_GLOBAL_MEMORY == 2
+    #define BLOCKX  32
+    #define BLOCKY  32
+    #define GRIDX   8
+    #define GRIDY   7  
+#else // CG try to use shared memory
+    #define BLOCKX  24
+    #define BLOCKY  20
+    #define GRIDX   8
+    #define GRIDY   7
+#endif
 
 #define ERROR_EXIT -1
 #define cudaErrorCheck(ans) { gpuAssert((ans), __FILE__, __LINE__); }
