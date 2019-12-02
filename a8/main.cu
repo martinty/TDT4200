@@ -6,8 +6,10 @@
 #include <sys/time.h>
 #include <cuda_runtime.h>
               
-#define N 992       // 31 * 32
-#define I 100000
+#define N       512      
+#define I       100000
+#define BLOCKS  1
+#define ORDER   1
 
 #define cudaErrorCheck(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort = true)
@@ -79,23 +81,46 @@ int main(int argc, char **argv)
     // Copy data from host to device
     cudaErrorCheck(cudaMemcpy(A, a, N*N * sizeof(int), cudaMemcpyHostToDevice));
     cudaErrorCheck(cudaMemcpy(B, b, N*N * sizeof(int), cudaMemcpyHostToDevice));
+    
+    // Warm up        
+    device_kernel_A<<<BLOCKS,N>>>(A);
+    device_kernel_B<<<BLOCKS,N>>>(B);
 
-    if(testA){
-        // GPU computation A
-        timeStart = walltime();
-        for(int i = 0; i < I; i++){
-            device_kernel_A<<<1,N>>>(A);
+    if(ORDER == 1){
+        if(testA){
+            // GPU computation A
+            timeStart = walltime();
+            for(int i = 0; i < I; i++){
+                device_kernel_A<<<BLOCKS,N>>>(A);
+            }
+            timeA = walltime() - timeStart;
         }
-        timeA = walltime() - timeStart;
+        if(testB){
+            // GPU computation B
+            timeStart = walltime();
+            for(int i = 0; i < I; i++){
+                device_kernel_B<<<BLOCKS,N>>>(B);
+            }
+            timeB = walltime() - timeStart;
+        }
     }
-
-    if(testB){
-        // GPU computation B
-        timeStart = walltime();
-        for(int i = 0; i < I; i++){
-            device_kernel_B<<<1,N>>>(B);
+    else{
+        if(testB){
+            // GPU computation B
+            timeStart = walltime();
+            for(int i = 0; i < I; i++){
+                device_kernel_B<<<BLOCKS,N>>>(B);
+            }
+            timeB = walltime() - timeStart;
         }
-        timeB = walltime() - timeStart;
+        if(testA){
+            // GPU computation A
+            timeStart = walltime();
+            for(int i = 0; i < I; i++){
+                device_kernel_A<<<BLOCKS,N>>>(A);
+            }
+            timeA = walltime() - timeStart;
+        }
     }
 
     // Free the device memory
