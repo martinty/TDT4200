@@ -6,7 +6,7 @@
 #include <sys/time.h>
 #include <cuda_runtime.h>
               
-#define N 1000
+#define N 992       // 31 * 32
 #define I 100000
 
 #define cudaErrorCheck(ans) { gpuAssert((ans), __FILE__, __LINE__); }
@@ -24,8 +24,8 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort =
 __global__ void device_kernel_A(int *A)
 {
     int sum = 0;
-    for(int n = 0; n < N; n++){
-        sum += A[N*n + threadIdx.x];
+    for(int i = 0; i < N; i++){
+        sum += A[i*N + threadIdx.x];
     }
 }
 
@@ -33,8 +33,8 @@ __global__ void device_kernel_A(int *A)
 __global__ void device_kernel_B(int *B)
 {
     int sum = 0;
-    for(int n = 0; n < N; n++){
-        sum += B[N*threadIdx.x + n];
+    for(int i = 0; i < N; i++){
+        sum += B[N*threadIdx.x + i];
     }
 }
 
@@ -49,8 +49,8 @@ int main(int argc, char **argv)
 {
     // Walltime variables
     double timeStart;
-    double timeA = 0;
-    double timeB = 0;
+    double timeA;
+    double timeB;
 
     // Host variables
     int a[N*N];
@@ -82,20 +82,20 @@ int main(int argc, char **argv)
 
     if(testA){
         // GPU computation A
+        timeStart = walltime();
         for(int i = 0; i < I; i++){
-            timeStart = walltime();
             device_kernel_A<<<1,N>>>(A);
-            timeA += walltime() - timeStart;
         }
+        timeA = walltime() - timeStart;
     }
 
     if(testB){
         // GPU computation B
+        timeStart = walltime();
         for(int i = 0; i < I; i++){
-            timeStart = walltime();
             device_kernel_B<<<1,N>>>(B);
-            timeB += walltime() - timeStart;
         }
+        timeB = walltime() - timeStart;
     }
 
     // Free the device memory
